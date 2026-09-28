@@ -1,0 +1,278 @@
+package com.encorepay;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.WebDriver;
+import org.testng.Assert;
+import org.testng.annotations.BeforeSuite;
+import org.testng.annotations.Test;
+
+import com.encorepay.base.WebDriverFactory;
+import com.encorepay.models.ClientConfig;
+import com.encorepay.models.JobStatus;
+import com.encorepay.notifiers.EmailNotifier;
+import com.encorepay.notifiers.GoogleChatNotifier;
+import com.encorepay.pages.AdminJobsPage;
+import com.encorepay.pages.LoginPage;
+import com.encorepay.utilities.ConfigReader;
+import com.encorepay.utilities.JobMonitoringHtmlReport;
+import com.encorepay.utilities.ScreenshotUtil;
+
+public class MultiClientAdminJobsTest {
+
+    @BeforeSuite(alwaysRun = true)
+    public void setupSuite() {
+        cleanOldArtifacts();
+    }
+
+    private static void cleanOldArtifacts() {
+        System.out.println("[INIT] Cleaning old reports and screenshots before run...");
+        ScreenshotUtil.cleanScreenshotsDirectory();
+        JobMonitoringHtmlReport.cleanReportsDirectory();
+    }
+
+    @Test(priority = 1, description = "Monitor all configured EncorePay clients sequentially")
+    public void monitorAllConfiguredClients() {
+        cleanOldArtifacts();
+
+       ConfigReader baseConfig = new ConfigReader();
+List<ClientConfig> clients = baseConfig.getClients();
+
+Assert.assertFalse(clients.isEmpty(), "No EncorePay clients are configured.");
+
+String runMode = baseConfig.getProperty("runMode", "multiple");
+
+if ("single".equalsIgnoreCase(runMode)) {
+    clients = List.of(clients.get(0));
+    System.out.println("[RUN MODE] SINGLE - Running only client.1: " + safeClientName(clients.get(0)));
+} else if ("multiple".equalsIgnoreCase(runMode)) {
+    System.out.println("[RUN MODE] MULTIPLE - Running all configured clients: " + clients.size());
+} else {
+    throw new IllegalArgumentException(
+        "Invalid runMode: " + runMode + ". Allowed values are single or multiple."
+    );
+}
+
+        Assert.assertFalse(clients.isEmpty(), "No EncorePay clients are configured.");
+
+        List<JobStatus> allStatuses = new ArrayList<>();
+        List<String> clientFailures = new ArrayList<>();
+
+        System.out.println("[MULTI-CLIENT] Total configured clients: " + clients.size());
+
+        for (ClientConfig client : clients) {
+            String clientName = safeClientName(client);
+            System.out.println("[CLIENT START] " + clientName);
+
+            ClientRunResult result = runClient(client);
+            allStatuses.addAll(result.statuses);
+
+            if (result.failureMessage != null && !result.failureMessage.isBlank()) {
+                clientFailures.add(clientName + " :: " + result.failureMessage);
+                System.out.println("[CLIENT FAILED] " + clientName + " :: " + result.failureMessage);
+            } else {
+                System.out.println("[CLIENT COMPLETE] " + clientName);
+            }
+        }
+
+        if (allStatuses.isEmpty() && clientFailures.isEmpty()) {
+            clientFailures.add("MULTI-CLIENT RUN :: No monitoring result was produced.");
+        }
+
+        String htmlReportPath = null;
+        try {
+            htmlReportPath = JobMonitoringHtmlReport.generateCombined(allStatuses, clientFailures);
+            GoogleChatNotifier.notify(allStatuses, htmlReportPath);
+            EmailNotifier.notify(allStatuses, htmlReportPath, htmlReportPath);
+        } catch (Exception e) {
+            clientFailures.add("REPORT GENERATION :: " + safeMessage(e));
+            System.out.println("[REPORT FAILED] " + safeMessage(e));
+        }
+
+        if (!clientFailures.isEmpty()) {
+            Assert.fail("One or more clients failed: " + String.join(" | ", clientFailures));
+        }
+
+        System.out.println("[MULTI-CLIENT] All configured clients completed successfully.");
+    }
+
+    private ClientRunResult runClient(ClientConfig client) {
+        WebDriver driver = null;
+        LoginPage loginPage = null;
+        List<JobStatus> statuses = new ArrayList<>();
+        boolean loginSucceeded = false;
+        String failureMessage = null;
+
+        try {
+            ConfigReader clientConfig = new ConfigReader(client);
+            driver = WebDriverFactory.create(clientConfig);
+            WebDriverFactory.configure(driver, clientConfig);
+
+            System.out.println("[CLIENT URL] " + safeClientName(client) + " -> " + client.getUrl());
+            driver.get(client.getUrl());
+            waitForDocumentReady(driver, clientConfig);
+
+            loginPage = new LoginPage(driver, clientConfig);
+            if (client.isSso()) {
+                loginPage.ssoLogin(client.getUsername(), client.getPassword());
+            } else {
+                loginPage.login(client.getUsername(), client.getPassword());
+            }
+            loginSucceeded = true;
+
+            waitForDocumentReady(driver, clientConfig);
+
+            AdminJobsPage adminJobsPage = new AdminJobsPage(driver, clientConfig);
+            adminJobsPage.navigateToAdminJobs();
+
+            if (!adminJobsPage.isJobsPageLoaded()) {
+                throw new IllegalStateException("Admin Jobs page did not load.");
+            }
+
+            statuses = adminJobsPage.monitorAllConfiguredJobs();
+            validateMonitoringData(statuses);
+        } catch (Throwable e) {
+            failureMessage = safeMessage(e);
+        } finally {
+            if (driver != null) {
+                if (loginSucceeded && loginPage != null && !loginPage.isLoginPageVisible()) {
+                    if (client.isSso()) {
+                        System.out.println("[CLIENT LOGOUT] Skipping logout for SSO client — SSO session persists and auto-login would occur.");
+                    } else {
+                        try {
+                            logoutAndConfirmSignIn(driver, loginPage, new ConfigReader(client), client.isSso());
+                        } catch (Exception cleanupException) {
+                            System.out.println("[WARN] Logout cleanup note: " + safeMessage(cleanupException));
+                        }
+                    }
+                }
+
+                try {
+                    driver.quit();
+                } catch (Exception cleanupException) {
+                    String cleanupMessage = safeMessage(cleanupException);
+                    failureMessage = failureMessage == null || failureMessage.isBlank()
+                        ? "Browser cleanup failed: " + cleanupMessage
+                        : failureMessage + " | Browser cleanup failed: " + cleanupMessage;
+                }
+            }
+        }
+
+        return new ClientRunResult(statuses, failureMessage);
+    }
+
+    private void logoutAndConfirmSignIn(
+        WebDriver driver,
+        LoginPage loginPage,
+        ConfigReader config,
+        boolean ssoEnabled
+    ) {
+        if (!loginPage.isLoginPageVisible() && !loginPage.isSsoPageVisible()) {
+            System.out.println("[CLIENT LOGOUT] Logging out...");
+            if (ssoEnabled) {
+                loginPage.ssoLogout();
+            } else {
+                loginPage.logout();
+            }
+        }
+
+        new org.openqa.selenium.support.ui.WebDriverWait(
+            driver,
+            Duration.ofSeconds(Math.max(10, config.getExplicitWait()))
+        ).until(d -> loginPage.isLoginPageVisible()
+            || loginPage.isSsoPageVisible()
+            || loginPage.isLoginSuccessful());
+
+        System.out.println("[CLIENT LOGOUT] Sign-in state confirmed.");
+    }
+
+    private void waitForDocumentReady(WebDriver driver, ConfigReader config) {
+        new org.openqa.selenium.support.ui.WebDriverWait(
+            driver,
+            Duration.ofSeconds(Math.max(10, config.getPageLoadTimeout()))
+        ).until(d -> {
+            try {
+                Object state = ((JavascriptExecutor) d).executeScript("return document.readyState");
+                return "complete".equalsIgnoreCase(String.valueOf(state));
+            } catch (Exception e) {
+                return false;
+            }
+        });
+    }
+
+    private void validateMonitoringData(List<JobStatus> statuses) {
+        Assert.assertNotNull(statuses, "Job monitoring data must not be null.");
+        Assert.assertTrue(statuses.size() >= 2 && statuses.size() <= 3, "Expected two required jobs and at most one optional Upcoming Demand job.");
+
+        validate(findRequired(statuses, "Post Receipts Job"));
+        validate(findRequired(statuses, "Encore Download Collection Items Job"));
+
+        JobStatus upcoming = findOptional(statuses, "Encore Up Coming Demands Job");
+        if (upcoming != null) {
+            validate(upcoming);
+        }
+
+        JobStatus post = findRequired(statuses, "Post Receipts Job");
+        if (post.getFailedCount() > 0) {
+            Assert.assertFalse(post.getFailureReasons().isEmpty(), "Receipt failure reason must be captured when failed receipts exist.");
+        }
+
+        for (JobStatus status : statuses) {
+            if (status != null && status.getStatus() != null
+                && status.getStatus().toUpperCase().contains("FAIL")) {
+                Assert.assertTrue(status.getJobFailureReason() != null && !status.getJobFailureReason().isBlank(),
+                    "Job failure Reason must be captured for " + status.getJobName() + ".");
+            }
+        }
+    }
+
+    private void validate(JobStatus status) {
+        Assert.assertTrue(status.getClientName() != null && !status.getClientName().isBlank(), "Client name must be captured for " + status.getJobName());
+        Assert.assertTrue(status.getStatus() != null && !status.getStatus().isBlank(), "Execution status must be captured for " + status.getJobName());
+        Assert.assertTrue(status.getDateTime() != null && !status.getDateTime().isBlank(), "Execution End Date/Time must be captured for " + status.getJobName());
+        Assert.assertFalse("NOT CAPTURED".equalsIgnoreCase(status.getStatus()), "Execution status was not captured for " + status.getJobName());
+        Assert.assertFalse("NOT CAPTURED".equalsIgnoreCase(status.getDateTime()), "Execution End Date/Time was not captured for " + status.getJobName());
+    }
+
+    private JobStatus findRequired(List<JobStatus> statuses, String name) {
+        return findOptional(statuses, name) != null
+            ? findOptional(statuses, name)
+            : throwMissingJob(name);
+    }
+
+    private JobStatus throwMissingJob(String name) {
+        throw new IllegalStateException("Missing required job: " + name);
+    }
+
+    private JobStatus findOptional(List<JobStatus> statuses, String name) {
+        return statuses == null ? null : statuses.stream()
+            .filter(x -> x != null && name.equalsIgnoreCase(x.getJobName()))
+            .findFirst()
+            .orElse(null);
+    }
+
+    private String safeClientName(ClientConfig client) {
+        if (client == null) return "Unknown Client";
+        String name = client.getDisplayName();
+        return name == null || name.isBlank() ? "Unknown Client" : name;
+    }
+
+    private String safeMessage(Throwable e) {
+        if (e == null) return "Unknown error.";
+        String message = e.getMessage();
+        return message == null || message.isBlank() ? e.getClass().getSimpleName() : message;
+    }
+
+    private static final class ClientRunResult {
+        private final List<JobStatus> statuses;
+        private final String failureMessage;
+
+        private ClientRunResult(List<JobStatus> statuses, String failureMessage) {
+            this.statuses = statuses == null ? new ArrayList<>() : new ArrayList<>(statuses);
+            this.failureMessage = failureMessage;
+        }
+    }
+}
