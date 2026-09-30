@@ -131,9 +131,6 @@ public final class GoogleChatNotifier {
                 .append("```\n\n");
     }
 
-    // ---------------------------------------------------------------
-    // Generic, alignment-safe table rendering
-    // ---------------------------------------------------------------
 
     private enum Align { LEFT, RIGHT }
 
@@ -195,9 +192,6 @@ public final class GoogleChatNotifier {
         return value.length() >= width ? value : " ".repeat(width - value.length()) + value;
     }
 
-    // ---------------------------------------------------------------
-    // Post Receipts
-    // ---------------------------------------------------------------
 
     private static void appendPostReceipts(StringBuilder message, List<JobStatus> jobs) {
         List<JobStatus> records = jobs.stream()
@@ -279,9 +273,6 @@ public final class GoogleChatNotifier {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Collection Items / Upcoming Demands
-    // ---------------------------------------------------------------
 
     private static void appendJob(StringBuilder message, List<JobStatus> jobs,
                                    String jobName, String heading) {

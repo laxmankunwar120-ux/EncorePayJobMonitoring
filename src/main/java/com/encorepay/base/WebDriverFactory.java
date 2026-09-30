@@ -1,8 +1,13 @@
 package com.encorepay.base;
 
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chromium.ChromiumDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.edge.EdgeDriver;
@@ -15,7 +20,9 @@ import com.encorepay.utilities.ConfigReader;
 import io.github.bonigarcia.wdm.WebDriverManager;
 
 public final class WebDriverFactory {
-    private WebDriverFactory() {}
+
+    private WebDriverFactory() {
+    }
 
     public static WebDriver create(ConfigReader config) {
         String browser = config.getBrowser() == null
@@ -36,7 +43,7 @@ public final class WebDriverFactory {
             case "msedge":
                 WebDriverManager.edgedriver().setup();
                 EdgeOptions edgeOptions = new EdgeOptions();
-                java.util.Map<String, Object> edgePrefs = new java.util.HashMap<>();
+                Map<String, Object> edgePrefs = new HashMap<>();
                 edgePrefs.put("profile.default_content_setting_values.geolocation", 1);
                 edgePrefs.put("profile.default_content_settings.geolocation", 1);
                 edgePrefs.put("profile.managed_default_content_settings.geolocation", 1);
@@ -55,7 +62,7 @@ public final class WebDriverFactory {
             default:
                 WebDriverManager.chromedriver().setup();
                 ChromeOptions chromeOptions = new ChromeOptions();
-                java.util.Map<String, Object> chromePrefs = new java.util.HashMap<>();
+                Map<String, Object> chromePrefs = new HashMap<>();
                 chromePrefs.put("profile.default_content_setting_values.geolocation", 1);
                 chromePrefs.put("profile.default_content_settings.geolocation", 1);
                 chromePrefs.put("profile.managed_default_content_settings.geolocation", 1);
@@ -80,23 +87,23 @@ public final class WebDriverFactory {
     }
 
     public static void configure(WebDriver driver, ConfigReader config) {
-        driver.manage().timeouts().implicitlyWait(java.time.Duration.ofSeconds(config.getImplicitWait()));
-        driver.manage().timeouts().pageLoadTimeout(java.time.Duration.ofSeconds(config.getPageLoadTimeout()));
+        driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(config.getImplicitWait()));
+        driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(config.getPageLoadTimeout()));
         driver.manage().window().maximize();
 
-        if (driver instanceof org.openqa.selenium.chromium.ChromiumDriver chromiumDriver) {
+        if (driver instanceof ChromiumDriver chromiumDriver) {
             try {
-                java.util.Map<String, Object> grantParams = new java.util.HashMap<>();
-                grantParams.put("permissions", java.util.List.of("geolocation", "notifications"));
+                Map<String, Object> grantParams = new HashMap<>();
+                grantParams.put("permissions", List.of("geolocation", "notifications"));
                 chromiumDriver.executeCdpCommand("Browser.grantPermissions", grantParams);
 
-                java.util.Map<String, Object> geoParams = new java.util.HashMap<>();
+                Map<String, Object> geoParams = new HashMap<>();
                 geoParams.put("latitude", 19.0760);
                 geoParams.put("longitude", 72.8777);
                 geoParams.put("accuracy", 100);
                 chromiumDriver.executeCdpCommand("Emulation.setGeolocationOverride", geoParams);
 
-                java.util.Map<String, Object> scriptParams = new java.util.HashMap<>();
+                Map<String, Object> scriptParams = new HashMap<>();
                 scriptParams.put("source",
                     "try {"
                     + "  if (navigator.geolocation) {"

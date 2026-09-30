@@ -8,34 +8,48 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import com.encorepay.models.JobStatus;
 
 public final class JobMonitoringHtmlReport {
 
-    private JobMonitoringHtmlReport() {}
+    private static final String JOB_POST_RECEIPTS = "Post Receipts Job";
+    private static final String JOB_COLLECTION_ITEMS = "Encore Download Collection Items Job";
+    private static final String JOB_UPCOMING_DEMAND = "Encore Up Coming Demands Job";
+
+    private static final String TITLE_POST_RECEIPTS = "1. Post Receipt Job";
+    private static final String TITLE_COLLECTION_ITEMS = "2. Download Collection Item Job";
+    private static final String TITLE_UPCOMING_DEMAND = "3. Upcoming Demand Job";
+
+    private static final int[] WIDTHS_COUNTS_REASON = {18, 21, 8, 13, 17, 23};
+    private static final int[] WIDTHS_COUNTS_ONLY = {28, 16, 12, 20, 24};
+    private static final int[] WIDTHS_REASON_ONLY = {28, 16, 24, 32};
+    private static final int[] WIDTHS_PLAIN = {38, 24, 38};
+
+    private JobMonitoringHtmlReport() {
+    }
 
     public static String generate(List<JobStatus> statuses) {
-        JobStatus post = find(statuses, "Post Receipts Job");
-        JobStatus collection = find(statuses, "Encore Download Collection Items Job");
-        JobStatus upcoming = findOptional(statuses, "Encore Up Coming Demands Job");
+        JobStatus post = find(statuses, JOB_POST_RECEIPTS);
+        JobStatus collection = find(statuses, JOB_COLLECTION_ITEMS);
+        JobStatus upcoming = findOptional(statuses, JOB_UPCOMING_DEMAND);
 
         StringBuilder html = baseHtml();
 
-        appendPostRows(html, "1. Post Receipt Job", List.of(post));
+        appendPostRows(html, TITLE_POST_RECEIPTS, List.of(post));
 
         if (upcoming != null) {
-            html.append("<div class='side-by-side-row'>");
-            html.append("<div class='side-by-side-col'>");
-            appendSimpleRows(html, "2. Download Collection Item Job", List.of(collection));
-            html.append("</div>");
-            html.append("<div class='side-by-side-col'>");
-            appendSimpleRows(html, "3. Upcoming Demand Job", List.of(upcoming));
-            html.append("</div>");
-            html.append("</div>");
+            html.append("<div class='side-by-side-row'>")
+                    .append("<div class='side-by-side-col'>");
+            appendSimpleRows(html, TITLE_COLLECTION_ITEMS, List.of(collection));
+            html.append("</div>")
+                    .append("<div class='side-by-side-col'>");
+            appendSimpleRows(html, TITLE_UPCOMING_DEMAND, List.of(upcoming));
+            html.append("</div></div>");
         } else {
-            appendSimpleRows(html, "2. Download Collection Item Job", List.of(collection));
+            appendSimpleRows(html, TITLE_COLLECTION_ITEMS, List.of(collection));
         }
 
         html.append("</div></body></html>");
@@ -46,169 +60,131 @@ public final class JobMonitoringHtmlReport {
         StringBuilder html = baseHtml();
         Map<String, List<JobStatus>> grouped = groupByClient(statuses);
 
+        // A client that failed before producing any status would otherwise be missing from
+        // every table, which reads as "not monitored". Represent it explicitly.
+        addUnmonitoredClients(grouped, failures);
+
         List<JobStatus> posts = new ArrayList<>();
         List<JobStatus> collections = new ArrayList<>();
         List<JobStatus> upcomings = new ArrayList<>();
 
         for (List<JobStatus> clientStatuses : grouped.values()) {
-            JobStatus post = findOptional(clientStatuses, "Post Receipts Job");
-            JobStatus collection = findOptional(
-                    clientStatuses,
-                    "Encore Download Collection Items Job"
-            );
-            JobStatus upcoming = findOptional(
-                    clientStatuses,
-                    "Encore Up Coming Demands Job"
-            );
+            JobStatus post = findOptional(clientStatuses, JOB_POST_RECEIPTS);
+            JobStatus collection = findOptional(clientStatuses, JOB_COLLECTION_ITEMS);
+            JobStatus upcoming = findOptional(clientStatuses, JOB_UPCOMING_DEMAND);
 
             if (post != null) {
                 posts.add(post);
             }
-
             if (collection != null) {
                 collections.add(collection);
             }
-
             if (upcoming != null) {
                 upcomings.add(upcoming);
             }
         }
 
         if (!posts.isEmpty()) {
-            appendPostRows(
-                    html,
-                    "1. Post Receipt Job",
-                    posts
-            );
+            appendPostRows(html, TITLE_POST_RECEIPTS, posts);
         }
 
         if (!collections.isEmpty() && !upcomings.isEmpty()) {
             html.append("<div class='side-by-side-row'>");
             html.append("<div class='side-by-side-col'>");
-
-            appendSimpleRows(
-                    html,
-                    "2. Download Collection Item Job",
-                    collections
-            );
-
+            appendSimpleRows(html, TITLE_COLLECTION_ITEMS, collections);
             html.append("</div>");
             html.append("<div class='side-by-side-col'>");
-
-            appendSimpleRows(
-                    html,
-                    "3. Upcoming Demand Job",
-                    upcomings
-            );
-
+            appendSimpleRows(html, TITLE_UPCOMING_DEMAND, upcomings);
             html.append("</div>");
             html.append("</div>");
-
         } else if (!collections.isEmpty()) {
-
-            appendSimpleRows(
-                    html,
-                    "2. Download Collection Item Job",
-                    collections
-            );
-
+            appendSimpleRows(html, TITLE_COLLECTION_ITEMS, collections);
         } else if (!upcomings.isEmpty()) {
-
-            appendSimpleRows(
-                    html,
-                    "3. Upcoming Demand Job",
-                    upcomings
-            );
+            appendSimpleRows(html, TITLE_UPCOMING_DEMAND, upcomings);
         }
 
         for (Map.Entry<String, List<JobStatus>> entry : grouped.entrySet()) {
-            String client = entry.getKey();
-            List<JobStatus> clientStatuses = entry.getValue();
             List<String> missing = new ArrayList<>();
-
-            if (findOptional(
-                    clientStatuses,
-                    "Post Receipts Job"
-            ) == null) {
-                missing.add("Post Receipts Job");
+            if (findOptional(entry.getValue(), JOB_POST_RECEIPTS) == null) {
+                missing.add(JOB_POST_RECEIPTS);
             }
-
-            if (findOptional(
-                    clientStatuses,
-                    "Encore Download Collection Items Job"
-            ) == null) {
-                missing.add(
-                        "Encore Download Collection Items Job"
-                );
+            if (findOptional(entry.getValue(), JOB_COLLECTION_ITEMS) == null) {
+                missing.add(JOB_COLLECTION_ITEMS);
             }
-
-            if (findOptional(
-                    clientStatuses,
-                    "Encore Up Coming Demands Job"
-            ) == null) {
-                missing.add(
-                        "Encore Up Coming Demands Job"
-                );
-            }
-
             if (!missing.isEmpty()) {
-                appendFailure(
-                        html,
-                        client,
-                        "Missing monitoring data: "
-                                + String.join(", ", missing)
-                );
+                appendFailure(html, entry.getKey(), "Missing monitoring data: " + String.join(", ", missing));
             }
         }
 
         if (failures != null && !failures.isEmpty()) {
-            html.append(
-                    "<section>"
-                            + "<h2>Client Run Failures</h2>"
-                            + "<table>"
-                            + "<thead>"
-                            + "<tr>"
-                            + "<th>Client</th>"
-                            + "<th>Status</th>"
-                            + "<th>Failure</th>"
-                            + "</tr>"
-                            + "</thead>"
-                            + "<tbody>"
-            );
-
-            for (String failure : failures) {
-                int separator = failure.indexOf(" :: ");
-
-                String client =
-                        separator > 0
-                                ? failure.substring(0, separator)
-                                : "Unknown Client";
-
-                String detail =
-                        separator > 0
-                                ? failure.substring(separator + 4).trim()
-                                : failure;
-
-                html.append("<tr>")
-                        .append("<td class='client-col'>")
-                        .append(escape(client))
-                        .append("</td>")
-                        .append("<td class='failed'>FAILED</td>")
-                        .append("<td class='failure-text'>")
-                        .append(escape(detail))
-                        .append("</td>")
-                        .append("</tr>");
-            }
-
-            html.append("</tbody></table></section>");
+            appendRunFailures(html, failures);
         }
 
         html.append("</div></body></html>");
 
-        return write(
-                html,
-                "EncorePay_Multi_Client_Job_Monitoring_"
-        );
+        return write(html, "EncorePay_Multi_Client_Job_Monitoring_");
+    }
+
+    private static void appendRunFailures(StringBuilder html, List<String> failures) {
+        html.append("<section>")
+                .append("<h2>Client Run Failures</h2>")
+                .append("<table><thead><tr>")
+                .append("<th>Client</th>")
+                .append("<th>Status</th>")
+                .append("<th>Failure</th>")
+                .append("</tr></thead><tbody>");
+
+        for (String failure : failures) {
+            int separator = failure.indexOf(" :: ");
+            String client = separator > 0 ? failure.substring(0, separator) : "Unknown Client";
+            String detail = separator > 0 ? failure.substring(separator + 4).trim() : failure;
+
+            html.append("<tr>")
+                    .append("<td class='client-col'>").append(escape(client)).append("</td>")
+                    .append("<td class='failed'>FAILED</td>")
+                    .append("<td class='failure-text'>").append(escape(detail)).append("</td>")
+                    .append("</tr>");
+        }
+
+        html.append("</tbody></table></section>");
+    }
+
+    private static void addUnmonitoredClients(
+            Map<String, List<JobStatus>> grouped,
+            List<String> failures) {
+
+        if (failures == null || failures.isEmpty()) {
+            return;
+        }
+
+        for (String failure : failures) {
+            int separator = failure.indexOf(" :: ");
+            if (separator <= 0) {
+                continue;
+            }
+
+            String client = failure.substring(0, separator).trim();
+            if (client.isEmpty() || grouped.containsKey(client)) {
+                continue;
+            }
+
+            List<JobStatus> placeholders = new ArrayList<>();
+            placeholders.add(
+                    placeholder(client, "Post Receipts Job", failure.substring(separator + 4).trim()));
+            placeholders.add(
+                    placeholder(client, "Encore Download Collection Items Job", failure.substring(separator + 4).trim()));
+            grouped.put(client, placeholders);
+        }
+    }
+
+    private static JobStatus placeholder(String client, String jobName, String detail) {
+        JobStatus status = new JobStatus();
+        status.setClientName(client);
+        status.setJobName(jobName);
+        status.setStatus("FAILED");
+        status.setDateTime("NOT CAPTURED");
+        status.setJobFailureReason(detail);
+        return status;
     }
 
     private static StringBuilder baseHtml() {
@@ -231,7 +207,6 @@ public final class JobMonitoringHtmlReport {
                 .append("background:#fafbfc;")
                 .append("padding:0 16px")
                 .append("}")
-
                 .append(".report-box{")
                 .append("background:#fff;")
                 .append("border:1px solid #d0d7de;")
@@ -239,7 +214,6 @@ public final class JobMonitoringHtmlReport {
                 .append("padding:24px;")
                 .append("box-shadow:0 1px 3px rgba(0,0,0,0.04)")
                 .append("}")
-
                 .append(".header-row{")
                 .append("display:flex;")
                 .append("justify-content:space-between;")
@@ -250,7 +224,6 @@ public final class JobMonitoringHtmlReport {
                 .append("margin-bottom:20px;")
                 .append("gap:12px;")
                 .append("}")
-
                 .append(".header-title{")
                 .append("font-size:22px;")
                 .append("font-weight:700;")
@@ -259,7 +232,6 @@ public final class JobMonitoringHtmlReport {
                 .append("flex:1 1 auto;")
                 .append("min-width:0;")
                 .append("}")
-
                 .append(".header-meta{")
                 .append("font-size:13px;")
                 .append("color:#555;")
@@ -268,7 +240,6 @@ public final class JobMonitoringHtmlReport {
                 .append("max-width:100%;")
                 .append("word-break:break-word;")
                 .append("}")
-
                 .append("h2{")
                 .append("font-size:15px;")
                 .append("font-weight:600;")
@@ -280,7 +251,6 @@ public final class JobMonitoringHtmlReport {
                 .append("border-left:4px solid #003366;")
                 .append("border-radius:2px")
                 .append("}")
-
                 .append("table{")
                 .append("border-collapse:collapse;")
                 .append("width:100%;")
@@ -288,14 +258,12 @@ public final class JobMonitoringHtmlReport {
                 .append("margin-bottom:20px;")
                 .append("font-size:13px")
                 .append("}")
-
                 .append("th,td{")
                 .append("border:1px solid #d0d7de;")
                 .append("padding:9px 12px;")
                 .append("vertical-align:middle;")
                 .append("word-break:break-word")
                 .append("}")
-
                 .append("th{")
                 .append("background:#eaf2f8;")
                 .append("color:#2d3748;")
@@ -304,15 +272,12 @@ public final class JobMonitoringHtmlReport {
                 .append("letter-spacing:0.3px;")
                 .append("text-align:center")
                 .append("}")
-
                 .append(".text-left{text-align:left}")
                 .append(".text-center{text-align:center}")
-
                 .append(".client-col{")
                 .append("font-weight:600;")
                 .append("color:#1a202c")
                 .append("}")
-
                 .append(".success,.completed{")
                 .append("background:#e2f0d9;")
                 .append("color:#006100;")
@@ -320,7 +285,6 @@ public final class JobMonitoringHtmlReport {
                 .append("text-align:center;")
                 .append("white-space:nowrap")
                 .append("}")
-
                 .append(".failed{")
                 .append("background:#f4cccc;")
                 .append("color:#9c0006;")
@@ -328,7 +292,6 @@ public final class JobMonitoringHtmlReport {
                 .append("text-align:center;")
                 .append("white-space:nowrap")
                 .append("}")
-
                 .append(".other{")
                 .append("background:#fff2cc;")
                 .append("color:#7f6000;")
@@ -336,19 +299,16 @@ public final class JobMonitoringHtmlReport {
                 .append("text-align:center;")
                 .append("white-space:nowrap")
                 .append("}")
-
                 .append(".reason-text{")
                 .append("color:#9c0006;")
                 .append("word-break:break-word;")
                 .append("line-height:1.4;")
                 .append("font-size:12px")
                 .append("}")
-
                 .append(".failure-text{")
                 .append("word-break:break-word;")
                 .append("line-height:1.4")
                 .append("}")
-
                 .append(".side-by-side-row{")
                 .append("display:flex;")
                 .append("gap:20px;")
@@ -356,17 +316,14 @@ public final class JobMonitoringHtmlReport {
                 .append("width:100%;")
                 .append("margin-bottom:10px")
                 .append("}")
-
                 .append(".side-by-side-col{")
                 .append("flex:1 1 0;")
                 .append("min-width:0;")
                 .append("width:50%")
                 .append("}")
-
                 .append(".side-by-side-col section{")
                 .append("width:100%;")
                 .append("}")
-
                 .append("@media (max-width:850px){")
                 .append(".side-by-side-row{")
                 .append("flex-direction:column;")
@@ -376,7 +333,6 @@ public final class JobMonitoringHtmlReport {
                 .append("width:100%")
                 .append("}")
                 .append("}")
-
                 .append("</style></head><body>")
                 .append("<div class='report-box'>")
                 .append("<div class='header-row'>")
@@ -388,24 +344,11 @@ public final class JobMonitoringHtmlReport {
                 .append("</div>");
     }
 
-    private static final int[] WIDTHS_COUNTS_REASON = {20, 13, 9, 15, 16, 27};
-    private static final int[] WIDTHS_COUNTS_ONLY = {28, 16, 12, 20, 24};
-    private static final int[] WIDTHS_REASON_ONLY = {28, 16, 24, 32};
-    private static final int[] WIDTHS_PLAIN = {38, 24, 38};
-
-    private static void appendPostRows(
-            StringBuilder html,
-            String title,
-            List<JobStatus> statuses) {
-
+    private static void appendPostRows(StringBuilder html, String title, List<JobStatus> statuses) {
         appendTable(html, title, statuses, true);
     }
 
-    private static void appendSimpleRows(
-            StringBuilder html,
-            String title,
-            List<JobStatus> statuses) {
-
+    private static void appendSimpleRows(StringBuilder html, String title, List<JobStatus> statuses) {
         appendTable(html, title, statuses, false);
     }
 
@@ -416,13 +359,11 @@ public final class JobMonitoringHtmlReport {
             boolean includeCounts) {
 
         List<String> reasons = new ArrayList<>();
-
         for (JobStatus status : statuses) {
             reasons.add(failureReason(status));
         }
 
-        boolean hasFailureReason =
-                reasons.stream().anyMatch(r -> !r.isBlank());
+        boolean hasFailureReason = reasons.stream().anyMatch(r -> !r.isBlank());
 
         int[] widths = includeCounts
                 ? (hasFailureReason ? WIDTHS_COUNTS_REASON : WIDTHS_COUNTS_ONLY)
@@ -462,9 +403,7 @@ public final class JobMonitoringHtmlReport {
                     .append("<td class='text-left client-col'>")
                     .append(escape(status.getClientName()))
                     .append("</td>")
-                    .append("<td class='")
-                    .append(statusClass(status.getStatus()))
-                    .append("'>")
+                    .append("<td class='").append(statusClass(status.getStatus())).append("'>")
                     .append(escape(status.getStatus()))
                     .append("</td>");
 
@@ -494,136 +433,86 @@ public final class JobMonitoringHtmlReport {
     }
 
     private static String failureReason(JobStatus status) {
-
         String reason = status.getJobFailureReason();
 
         if (reason == null || reason.isBlank()) {
-            reason =
-                    status.getFailureReasons() == null
-                            ? ""
-                            : String.join(
-                                    "; ",
-                                    status.getFailureReasons()
-                            );
+            reason = status.getFailureReasons() == null
+                    ? ""
+                    : String.join("; ", status.getFailureReasons());
         }
 
         return reason == null ? "" : reason;
     }
 
-    private static void appendFailure(
-            StringBuilder html,
-            String client,
-            String detail) {
-
-        html.append(
-                "<section>"
-                        + "<h2>Client Monitoring Error</h2>"
-                        + "<table>"
-                        + "<thead><tr>"
-                        + "<th>Client</th>"
-                        + "<th>Status</th>"
-                        + "<th>Failure</th>"
-                        + "</tr></thead>"
-                        + "<tbody><tr>"
-                        + "<td class='client-col'>"
-                        + escape(client)
-                        + "</td>"
-                        + "<td class='failed'>FAILED</td>"
-                        + "<td class='failure-text'>"
-                        + escape(detail)
-                        + "</td>"
-                        + "</tr></tbody>"
-                        + "</table>"
-                        + "</section>"
-        );
+    private static void appendFailure(StringBuilder html, String client, String detail) {
+        html.append("<section>")
+                .append("<h2>Client Monitoring Error</h2>")
+                .append("<table><thead><tr>")
+                .append("<th>Client</th>")
+                .append("<th>Status</th>")
+                .append("<th>Failure</th>")
+                .append("</tr></thead><tbody><tr>")
+                .append("<td class='client-col'>").append(escape(client)).append("</td>")
+                .append("<td class='failed'>FAILED</td>")
+                .append("<td class='failure-text'>").append(escape(detail)).append("</td>")
+                .append("</tr></tbody></table>")
+                .append("</section>");
     }
 
-    private static Map<String, List<JobStatus>> groupByClient(
-            List<JobStatus> statuses) {
-
-        Map<String, List<JobStatus>> grouped =
-                new LinkedHashMap<>();
+    private static Map<String, List<JobStatus>> groupByClient(List<JobStatus> statuses) {
+        Map<String, List<JobStatus>> grouped = new LinkedHashMap<>();
 
         if (statuses == null) {
             return grouped;
         }
 
         for (JobStatus status : statuses) {
-
             if (status == null) {
                 continue;
             }
 
-            String client =
-                    status.getClientName() == null
-                            || status.getClientName().isBlank()
-                            ? "Unknown Client"
-                            : status.getClientName();
+            String client = status.getClientName() == null || status.getClientName().isBlank()
+                    ? "Unknown Client"
+                    : status.getClientName();
 
-            grouped.computeIfAbsent(
-                    client,
-                    key -> new ArrayList<>()
-            ).add(status);
+            grouped.computeIfAbsent(client, key -> new ArrayList<>()).add(status);
         }
 
         return grouped;
     }
 
-    private static JobStatus find(
-            List<JobStatus> statuses,
-            String name) {
-
-        JobStatus result =
-                findOptional(
-                        statuses,
-                        name
-                );
+    private static JobStatus find(List<JobStatus> statuses, String name) {
+        JobStatus result = findOptional(statuses, name);
 
         if (result == null) {
-            throw new IllegalStateException(
-                    "Missing required job: " + name
-            );
+            throw new IllegalStateException("Missing required job: " + name);
         }
 
         return result;
     }
 
-    private static JobStatus findOptional(
-            List<JobStatus> statuses,
-            String name) {
-
+    private static JobStatus findOptional(List<JobStatus> statuses, String name) {
         if (statuses == null) {
             return null;
         }
 
         return statuses.stream()
-                .filter(
-                        x -> x != null
-                                && name.equalsIgnoreCase(
-                                        x.getJobName()
-                                )
-                )
+                .filter(x -> x != null && name.equalsIgnoreCase(x.getJobName()))
                 .findFirst()
                 .orElse(null);
     }
 
-    private static String statusClass(
-            String status) {
-
+    private static String statusClass(String status) {
         if (status == null) {
             return "other";
         }
 
-        String normalized =
-                status.trim().toUpperCase();
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
 
         if (normalized.contains("SUCCESS")
                 || normalized.contains("COMPLETED")
                 || normalized.equals("SUCCEEDED")
-                || normalized.equals(
-                        "COMPLETED_SUCCESSFULLY"
-                )) {
-
+                || normalized.equals("COMPLETED_SUCCESSFULLY")) {
             return "success";
         }
 
@@ -635,124 +524,63 @@ public final class JobMonitoringHtmlReport {
     }
 
     public static void cleanReportsDirectory() {
-
         try {
+            File dir = new File(System.getProperty("user.dir"), "test-output/report");
 
-            File dir =
-                    new File(
-                            System.getProperty("user.dir"),
-                            "test-output/report"
-                    );
-
-            if (dir.exists()
-                    && dir.isDirectory()) {
-
-                File[] files =
-                        dir.listFiles(
-                                (d, name) -> {
-
-                                    String lower =
-                                            name.toLowerCase();
-
-                                    return lower.endsWith(".html")
-                                            || lower.endsWith(".xlsx");
-                                }
-                        );
+            if (dir.isDirectory()) {
+                File[] files = dir.listFiles((d, name) -> {
+                    String lower = name.toLowerCase();
+                    return lower.endsWith(".html") || lower.endsWith(".xlsx");
+                });
 
                 if (files != null) {
-
                     for (File file : files) {
-
                         try {
                             file.delete();
                         } catch (Exception ignored) {
+                            // A locked file is removed by the next run.
                         }
                     }
                 }
-
             } else if (!dir.exists()) {
                 dir.mkdirs();
             }
-
         } catch (Exception e) {
-
-            System.out.println(
-                    " Unable to clean reports directory: "
-                            + e.getMessage()
-            );
+            System.out.println("Unable to clean reports directory: " + e.getMessage());
         }
     }
 
-    private static String write(
-            StringBuilder html,
-            String prefix) {
-
+    private static String write(StringBuilder html, String prefix) {
         try {
+            File dir = new File(System.getProperty("user.dir"), "test-output/report");
 
-            File dir =
-                    new File(
-                            System.getProperty("user.dir"),
-                            "test-output/report"
-                    );
-
-            if (!dir.exists()
-                    && !dir.mkdirs()) {
-
-                throw new IllegalStateException(
-                        "Unable to create report directory."
-                );
+            if (!dir.exists() && !dir.mkdirs()) {
+                throw new IllegalStateException("Unable to create report directory.");
             }
 
-            File[] oldReports =
-                    dir.listFiles(
-                            (d, name) ->
-                                    name.toLowerCase()
-                                            .endsWith(".html")
-                    );
-
+            File[] oldReports = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".html"));
             if (oldReports != null) {
-
                 for (File file : oldReports) {
-
                     try {
                         file.delete();
                     } catch (Exception ignored) {
+                        // Keeping a stale report is preferable to failing the run.
                     }
                 }
             }
 
-            String stamp =
-                    new SimpleDateFormat(
-                            "yyyy-MM-dd_HHmmss"
-                    ).format(new Date());
+            String stamp = new SimpleDateFormat("yyyy-MM-dd_HHmmss").format(new Date());
+            File output = new File(dir, prefix + stamp + ".html");
 
-            File output =
-                    new File(
-                            dir,
-                            prefix + stamp + ".html"
-                    );
-
-            Files.writeString(
-                    output.toPath(),
-                    html.toString(),
-                    StandardCharsets.UTF_8
-            );
+            Files.writeString(output.toPath(), html.toString(), StandardCharsets.UTF_8);
 
             return output.getAbsolutePath();
-
         } catch (Exception e) {
-
-            throw new IllegalStateException(
-                    "Unable to generate HTML report: "
-                            + e.getMessage(),
-                    e
-            );
+            throw new IllegalStateException("Unable to generate HTML report: " + e.getMessage(), e);
         }
     }
 
-    private static String escape(
-            String value) {
-
+    private static String escape(String value) {
         if (value == null) {
             return "";
         }

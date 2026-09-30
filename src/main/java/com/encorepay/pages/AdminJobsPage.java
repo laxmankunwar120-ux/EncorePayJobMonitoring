@@ -1,8 +1,8 @@
 package com.encorepay.pages;
+import org.openqa.selenium.interactions.Actions;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.Keys;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.ui.ExpectedConditions;
@@ -27,30 +28,30 @@ import com.encorepay.utilities.ConfigReader;
 
 public class AdminJobsPage extends BasePage {
 
-    public static final List<String> MONITORED_JOB_NAMES = List.of(
-        "Post Receipts Job",
-        "Encore Download Collection Items Job",
-        "Encore Up Coming Demands Job"
-    );
+    private static final String JOB_POST_RECEIPTS = "Post Receipts Job";
+    private static final String JOB_COLLECTION_ITEMS = "Encore Download Collection Items Job";
+    private static final String JOB_UPCOMING_DEMAND = "Encore Up Coming Demands Job";
 
     private static final Map<String, String> JOB_GROUPS = Map.of(
-        "Post Receipts Job", "POST_RECEIPT",
-        "Encore Download Collection Items Job", "COLLECTION_ITEMS",
-        "Encore Up Coming Demands Job", "UP_COMING_DEMAND"
+        JOB_POST_RECEIPTS, "POST_RECEIPT",
+        JOB_COLLECTION_ITEMS, "COLLECTION_ITEMS",
+        JOB_UPCOMING_DEMAND, "UP_COMING_DEMAND"
     );
 
     private static final Map<String, List<String>> JOB_ALIASES = new LinkedHashMap<>();
 
+    private static final By JOB_ROWS_FALLBACK = By.cssSelector("table.table-box tbody tr");
+
     static {
-        JOB_ALIASES.put("Post Receipts Job", List.of("Post Receipts Job", "Post Receipt Job"));
-        JOB_ALIASES.put("Encore Download Collection Items Job", List.of(
-            "Encore Download Collection Items Job", "Download Collection Items Job"));
-        JOB_ALIASES.put("Encore Up Coming Demands Job", List.of(
-            "Encore Up Coming Demands Job", "Encore Upcoming Demands Job", "Upcoming Demands Job"));
+        JOB_ALIASES.put(JOB_POST_RECEIPTS, List.of(JOB_POST_RECEIPTS, "Post Receipt Job"));
+        JOB_ALIASES.put(JOB_COLLECTION_ITEMS, List.of(
+            JOB_COLLECTION_ITEMS, "Download Collection Items Job"));
+        JOB_ALIASES.put(JOB_UPCOMING_DEMAND, List.of(
+            JOB_UPCOMING_DEMAND, "Encore Up Coming Demand Job"));
     }
 
     private static final By JOB_ROWS = By.cssSelector(
-        "app-job table.table-box tbody tr, table.table-box tbody tr");
+            "app-job app-custom-table table.table-box tbody tr, app-job table.table-box tbody tr");
     private static final By VIEW_ACTION = By.xpath(".//button[normalize-space()='View'] | .//a[normalize-space()='View']");
     private static final By RECEIPT_ACTION = By.xpath(".//button[normalize-space()='Receipt'] | .//a[normalize-space()='Receipt']");
 
@@ -60,10 +61,29 @@ public class AdminJobsPage extends BasePage {
     private static final By LMS_POSTING_STATUS = By.cssSelector("app-receipts select[name='lmsPostingStatus']");
     private static final By RECEIPT_SEARCH = By.xpath("//app-receipts//button[normalize-space()='Search']");
     private static final By RECEIPT_ROWS = By.cssSelector("app-receipts app-custom-table table.table-box tbody tr");
-    private static final By RECEIPT_PAGINATOR_RANGE = By.cssSelector("app-receipts mat-paginator .mat-mdc-paginator-range-label, app-receipts mat-paginator .mat-paginator-range-label");
-    private static final By RECEIPT_NEXT_PAGE = By.cssSelector("app-receipts mat-paginator button[aria-label='Next page'], app-receipts mat-paginator button[aria-label*='Next page']");
+    private static final By RECEIPT_PAGINATOR_RANGE = By.cssSelector(
+            "app-receipts div.paginator-container .ct-range, app-receipts .ct-range, "
+                    + "app-receipts mat-paginator .mat-mdc-paginator-range-label, "
+                    + "app-receipts mat-paginator .mat-paginator-range-label");
+    private static final By RECEIPT_NEXT_PAGE = By.cssSelector(
+            "app-receipts div.paginator-container button[aria-label='Next page'], "
+                    + "app-receipts button[aria-label*='Next page']");
+    private static final By JOB_PAGINATOR_RANGE = By.cssSelector(
+            "app-job div.paginator-container .ct-range, app-job .ct-range, "
+                    + "app-job mat-paginator .mat-mdc-paginator-range-label, "
+                    + "app-job .mat-paginator-range-label");
+    private static final By JOB_NEXT_PAGE = By.cssSelector(
+            "app-job div.paginator-container button[aria-label='Next page'], "
+                    + "app-job button[aria-label*='Next page']");
+    private static final By JOB_FIRST_PAGE = By.cssSelector(
+            "app-job div.paginator-container button[aria-label='First page'], "
+                    + "app-job button[aria-label*='First page']");
     private static final By RECEIPT_ERROR_ICON = By.xpath(".//div[contains(@class,'material-symbols-rounded') and normalize-space()='error_outline']");
+    private static final By RECEIPTS_PANEL = By.cssSelector("app-receipts div.list-panel, app-receipts div.list-page, app-receipts");
+    private static final By MENU_BACKDROP = By.cssSelector(".cdk-overlay-backdrop, .cdk-overlay-dark-backdrop");
     private static final By FAILURE_MENU = By.cssSelector(".cdk-overlay-pane .mat-mdc-menu-panel, .cdk-overlay-pane .mat-menu-panel");
+    private static final By RECEIPTS_HEADING = By.xpath(
+            "//app-receipts//h1[contains(normalize-space(),'Post-Receipts')] | //h1[contains(normalize-space(),'Post-Receipts')]");
     private static final By RECEIPT_CLOSE = By.xpath("//app-receipts//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]");
 
     private static final By JOB_DETAILS_ROOT = By.cssSelector("app-job-details");
@@ -90,7 +110,12 @@ public class AdminJobsPage extends BasePage {
     }
 
     public void navigateToAdminJobs() {
-        openJobsRouteDirectly();
+        String jobsUrl = buildJobsUrl();
+        String currentUrl = driver.getCurrentUrl();
+        if (!currentUrl.equalsIgnoreCase(jobsUrl)) {
+            driver.navigate().to(jobsUrl);
+            waitForPageLoad();
+        }
         waitForJobsPage();
     }
 
@@ -119,9 +144,9 @@ public class AdminJobsPage extends BasePage {
             System.out.println("[WARN] Post Receipts Job capture error for " + clientName + ": " + e.getMessage());
             JobStatus failedPost = new JobStatus();
             failedPost.setClientName(clientName);
-            failedPost.setJobName("Post Receipts Job");
+            failedPost.setJobName(JOB_POST_RECEIPTS);
             failedPost.setStatus("FAILED");
-            failedPost.setDateTime(LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy hh:mm:ss a")));
+            failedPost.setDateTime(runTimestamp());
             failedPost.setJobFailureReason("Network/Page error: " + e.getMessage());
             results.add(failedPost);
         }
@@ -129,14 +154,14 @@ public class AdminJobsPage extends BasePage {
 
         try {
             ensureJobsPage();
-            results.add(monitorExecutionJob("Encore Download Collection Items Job", clientName));
+            results.add(monitorExecutionJob(JOB_COLLECTION_ITEMS, clientName));
         } catch (Exception e) {
             System.out.println("[WARN] Download Collection Items Job capture error for " + clientName + ": " + e.getMessage());
             JobStatus failedCol = new JobStatus();
             failedCol.setClientName(clientName);
-            failedCol.setJobName("Encore Download Collection Items Job");
+            failedCol.setJobName(JOB_COLLECTION_ITEMS);
             failedCol.setStatus("FAILED");
-            failedCol.setDateTime(LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy hh:mm:ss a")));
+            failedCol.setDateTime(runTimestamp());
             failedCol.setJobFailureReason("Network/Page error: " + e.getMessage());
             results.add(failedCol);
         }
@@ -144,8 +169,8 @@ public class AdminJobsPage extends BasePage {
 
         try {
             ensureJobsPage();
-            if (findJobRowOptional("Encore Up Coming Demands Job") != null) {
-                results.add(monitorExecutionJob("Encore Up Coming Demands Job", clientName));
+            if (findUpcomingDemandRow() != null) {
+                results.add(monitorExecutionJob(JOB_UPCOMING_DEMAND, clientName));
             } else {
                 System.out.println(" Skip Encore Up Coming Demands Job is not configured for client " + clientName + ".");
             }
@@ -153,9 +178,9 @@ public class AdminJobsPage extends BasePage {
             System.out.println("[WARN] Upcoming Demands Job capture error for " + clientName + ": " + e.getMessage());
             JobStatus failedUp = new JobStatus();
             failedUp.setClientName(clientName);
-            failedUp.setJobName("Encore Up Coming Demands Job");
+            failedUp.setJobName(JOB_UPCOMING_DEMAND);
             failedUp.setStatus("FAILED");
-            failedUp.setDateTime(LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy hh:mm:ss a")));
+            failedUp.setDateTime(runTimestamp());
             failedUp.setJobFailureReason("Network/Page error: " + e.getMessage());
             results.add(failedUp);
         }
@@ -163,12 +188,23 @@ public class AdminJobsPage extends BasePage {
         return results;
     }
 
+    private void requireActiveSession(String jobName) {
+        try {
+            requireLiveSession(driver);
+        } catch (IllegalStateException e) {
+            throw new IllegalStateException(
+                    "Browser session was lost before " + jobName + " could be monitored: " + e.getMessage(), e);
+        }
+    }
+
     private JobStatus monitorPostReceiptJob(String clientName) {
+        requireActiveSession(JOB_POST_RECEIPTS);
+
         JobStatus status = new JobStatus();
-        status.setJobName("Post Receipts Job");
+        status.setJobName(JOB_POST_RECEIPTS);
         status.setClientName(clientName);
 
-        WebElement jobRow = requireJobRow("Post Receipts Job");
+        WebElement jobRow = requireJobRow(JOB_POST_RECEIPTS);
         WebElement receiptButton = visibleInside(jobRow, RECEIPT_ACTION);
         if (receiptButton == null) {
             throw new IllegalStateException("Receipt action was not found for Post Receipts Job.");
@@ -185,17 +221,23 @@ public class AdminJobsPage extends BasePage {
         status.setPendingCount(pending.totalCount);
         failed.reasons.forEach(status::addFailureReason);
 
-        if (failed.totalCount > 0 && failed.reasons.isEmpty()) {
-            throw new IllegalStateException("Failed receipt reason could not be captured from the individual error icon.");
+        List<String> notes = new ArrayList<>(failed.problems);
+        if (failed.totalCount > 0 && failed.reasons.isEmpty() && notes.isEmpty()) {
+            notes.add("Failed receipts were found but no failure reason could be read");
+        }
+        if (!notes.isEmpty()) {
+            status.setJobFailureReason("Failure reason capture incomplete: " + String.join("; ", notes));
         }
 
         closeReceiptPageUsingUi();
         ensureJobsPage();
-        captureLatestExecutionFromJobsList("Post Receipts Job", status);
+        captureLatestExecutionFromJobsList(JOB_POST_RECEIPTS, status);
         return status;
     }
 
     private JobStatus monitorExecutionJob(String jobName, String clientName) {
+        requireActiveSession(jobName);
+
         JobStatus status = new JobStatus();
         status.setJobName(jobName);
         status.setClientName(clientName);
@@ -207,7 +249,13 @@ public class AdminJobsPage extends BasePage {
         ensureReceiptPage();
         ensureReceiptFiltersVisible();
         selectReceiptDateToday();
-        selectPostingStatus(postingStatus);
+
+        if (!selectPostingStatus(postingStatus)) {
+            System.out.println(" LMS Posting Status '" + postingStatus
+                    + "' is not offered for this client; reporting 0 for it.");
+            return new ReceiptCapture();
+        }
+
         waitMillis(FILTER_PAUSE_MS);
         searchReceipts(postingStatus);
 
@@ -215,7 +263,9 @@ public class AdminJobsPage extends BasePage {
         capture.totalCount = readReceiptTotalCount();
 
         if (inspectReasons && capture.totalCount > 0) {
-            capture.reasons.addAll(readUniqueFailureReasons());
+            ReasonScan scan = readUniqueFailureReasons();
+            capture.reasons.addAll(scan.reasons);
+            capture.problems.addAll(scan.problems);
         }
 
         return capture;
@@ -236,17 +286,17 @@ public class AdminJobsPage extends BasePage {
         waitMillis(UI_PAUSE_MS);
     }
 
-private void selectPostingStatus(String status) {
+    private boolean selectPostingStatus(String status) {
         WebElement selectElement = wait.until(
             ExpectedConditions.elementToBeClickable(LMS_POSTING_STATUS)
         );
         Select select = new Select(selectElement);
 
+        boolean matched = false;
         try {
             select.selectByVisibleText(status);
+            matched = true;
         } catch (Exception e) {
-            // Fallback: case-insensitive match against visible text
-            boolean matched = false;
             for (WebElement option : select.getOptions()) {
                 if (status.equalsIgnoreCase(option.getText().trim())) {
                     select.selectByVisibleText(option.getText().trim());
@@ -254,16 +304,16 @@ private void selectPostingStatus(String status) {
                     break;
                 }
             }
-            if (!matched) {
-                throw new IllegalStateException(
-                    "Could not select LMS posting status '" + status + "'."
-                );
-            }
+        }
+
+        if (!matched) {
+            return false;
         }
 
         wait.until(d -> status.equalsIgnoreCase(
             new Select(d.findElement(LMS_POSTING_STATUS)).getFirstSelectedOption().getText().trim()
         ));
+        return true;
     }
 
     private void searchReceipts(String expectedStatus) {
@@ -304,8 +354,9 @@ private void selectPostingStatus(String status) {
         if (matcher.find()) return Integer.parseInt(matcher.group(1));
         return visibleReceiptRows().size();
     }
-    private Set<String> readUniqueFailureReasons() {
+    private ReasonScan readUniqueFailureReasons() {
         Set<String> reasons = new LinkedHashSet<>();
+        Set<String> problems = new LinkedHashSet<>();
         Set<String> pages = new LinkedHashSet<>();
 
         while (true) {
@@ -322,29 +373,33 @@ private void selectPostingStatus(String status) {
                     break;
                 }
 
-                throw new IllegalStateException(
-                    "FAILED receipt results were not available."
-                );
+                waitForReceiptResults();
+                rowCount = visibleReceiptRows().size();
+
+                if (rowCount == 0) {
+                    problems.add("FAILED receipts were reported by the paginator but no receipt "
+                            + "rows rendered (range: '" + readPaginatorRange() + "')");
+                    break;
+                }
             }
 
             for (int index = 0; index < rowCount; index++) {
-                // Re-fetch rows each iteration to avoid stale element references
+                // Re-fetch each iteration; cached row references go stale on re-render.
                 List<WebElement> currentRows = visibleReceiptRows();
 
                 if (index >= currentRows.size()) {
-                    throw new IllegalStateException(
-                        "FAILED receipt row disappeared while reading failure reason."
-                    );
+                    problems.add("FAILED receipt row " + (index + 1)
+                            + " disappeared before its failure reason could be read");
+                    break;
                 }
 
                 WebElement row = currentRows.get(index);
                 WebElement icon = visibleInside(row, RECEIPT_ERROR_ICON);
 
                 if (icon == null) {
-                    throw new IllegalStateException(
-                        "FAILED receipt row " + (index + 1)
-                            + " does not contain the error icon."
-                    );
+                    problems.add("FAILED receipt row " + (index + 1)
+                            + " has no error icon to open");
+                    continue;
                 }
 
                 boolean reasonCaptured = false;
@@ -355,40 +410,30 @@ private void selectPostingStatus(String status) {
                     scrollIntoView(icon);
                     clickAndWait(icon);
 
-                    // Wait for the menu to appear, with a generous timeout
                     reason = readFailureReason();
 
                     if (!reason.isBlank()) {
                         reasons.add(reason);
                         reasonCaptured = true;
-                    } else {
-                        // Menu may not have opened yet - retry the click
-                        if (attempt < maxAttempts - 1) {
-                            waitMillis(500);
-                            // Re-fetch the icon in case of stale element
-                            List<WebElement> refreshedRows = visibleReceiptRows();
-                            if (index < refreshedRows.size()) {
-                                icon = visibleInside(refreshedRows.get(index), RECEIPT_ERROR_ICON);
-                            }
+                    } else if (attempt < maxAttempts - 1) {
+                        waitMillis(500);
+                        List<WebElement> refreshedRows = visibleReceiptRows();
+                        if (index < refreshedRows.size()) {
+                            icon = visibleInside(refreshedRows.get(index), RECEIPT_ERROR_ICON);
                         }
                     }
                 }
 
                 if (!reasonCaptured) {
-                    throw new IllegalStateException(
-                        "FAILED receipt row " + (index + 1)
-                            + " opened the error menu, but no failure reason was captured after "
-                            + maxAttempts + " attempts."
-                    );
+                    problems.add("FAILED receipt row " + (index + 1)
+                            + " opened no failure reason after " + maxAttempts + " attempts");
                 }
 
                 closeFailureReasonMenu();
 
-                // Wait for any DOM changes to settle before continuing
                 waitMillis(UI_PAUSE_MS);
             }
 
-            // Re-fetch next page button to avoid stale element
             WebElement next = visibleElement(RECEIPT_NEXT_PAGE);
 
             if (next == null || !next.isEnabled()) {
@@ -398,43 +443,87 @@ private void selectPostingStatus(String status) {
             String before = readPaginatorRange();
             clickAndWait(next);
 
-            wait.until(d -> {
-                String after = readPaginatorRange();
-                return !after.isBlank() && !after.equals(before);
-            });
+            try {
+                wait.until(d -> {
+                    String after = readPaginatorRange();
+                    return !after.isBlank() && !after.equals(before);
+                });
+            } catch (RuntimeException e) {
+                problems.add("Receipt paginator stopped advancing at range '" + before + "'");
+                break;
+            }
 
             waitForReceiptResults();
         }
 
-        return reasons;
+        return new ReasonScan(reasons, problems);
+    }
+
+    /** Reasons collected from the error menus, plus non-fatal capture problems. */
+    private static final class ReasonScan {
+        final Set<String> reasons;
+        final Set<String> problems;
+
+        ReasonScan(Set<String> reasons, Set<String> problems) {
+            this.reasons = reasons;
+            this.problems = problems;
+        }
     }
 
     private String readFailureReason() {
-        return clean(wait.until(d -> {
-            List<WebElement> menus = d.findElements(FAILURE_MENU);
+        // shortWait keeps a menu that never opens from stalling the whole scan.
+        try {
+            return clean(shortWait.until(d -> {
+                List<WebElement> menus = d.findElements(FAILURE_MENU);
 
-            for (int i = menus.size() - 1; i >= 0; i--) {
-                WebElement menu = menus.get(i);
-                if (!isDisplayed(menu)) continue;
+                for (int i = menus.size() - 1; i >= 0; i--) {
+                    WebElement menu = menus.get(i);
+                    if (!isDisplayed(menu)) continue;
 
-                String text = clean(menu.getText());
-                if (!text.isBlank()) return text;
-            }
+                    String text = clean(menu.getText());
+                    if (!text.isBlank()) return text;
+                }
 
-            return null;
-        }));
+                return null;
+            }));
+        } catch (RuntimeException e) {
+            return "";
+        }
     }
+
     private void closeFailureReasonMenu() {
-        // Escape closes the menu
         try {
             driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
         } catch (Exception ignored) {
         }
 
-        wait.until(d ->
-            d.findElements(FAILURE_MENU).stream().noneMatch(this::isDisplayed)
-        );
+        // Never click <body>: its centre can hit a row action and navigate away.
+        for (By safeTarget : List.of(MENU_BACKDROP, RECEIPTS_HEADING)) {
+            try {
+                WebElement target = visibleElement(safeTarget);
+                if (target == null) continue;
+                new Actions(driver).moveToElement(target).click().perform();
+                if (waitForMenuClosed()) {
+                    return;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        if (!waitForMenuClosed()) {
+            System.out.println("[WARN] A failure reason menu stayed open; continuing the receipt scan anyway.");
+        }
     }
+
+    private boolean waitForMenuClosed() {
+        try {
+            shortWait.until(d -> d.findElements(FAILURE_MENU).stream().noneMatch(this::isDisplayed));
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
 
     private void captureLatestExecutionFromJobsList(String jobName, JobStatus status) {
         ensureJobsPage();
@@ -480,6 +569,10 @@ private void selectPostingStatus(String status) {
         }
 
         if (executionStatus.isBlank()) {
+            executionStatus = readStatusFromModalText(modal.getText());
+        }
+
+        if (executionStatus.isBlank()) {
             executionStatus = "No Status";
         }
         if (dateTime.isBlank()) {
@@ -508,6 +601,21 @@ private void selectPostingStatus(String status) {
 
     private boolean isFailedStatus(String status) {
         return status != null && status.trim().toUpperCase(Locale.ROOT).contains("FAIL");
+    }
+
+    private static final Pattern STATUS_LINE = Pattern.compile(
+            "(?i)^(success(?:ful(?:ly)?)?|completed(?: successfully)?|succeeded|failed|failure|"
+                    + "partially failed|processing|running|in progress|aborted|cancelled|canceled|skipped)$");
+
+    private String readStatusFromModalText(String modalText) {
+        if (modalText == null || modalText.isBlank()) return "";
+
+        for (String line : modalText.replace("\r", "").split("\n")) {
+            String value = clean(line);
+            if (value.isBlank() || "Status".equalsIgnoreCase(value)) continue;
+            if (STATUS_LINE.matcher(value).matches()) return value;
+        }
+        return "";
     }
 
     private String readReasonFromModalText(String modalText) {
@@ -548,7 +656,6 @@ private void selectPostingStatus(String status) {
                     return row;
                 }
             } catch (Exception ignored) {
-                // Row may have become stale, skip it
             }
         }
         return null;
@@ -783,10 +890,20 @@ private void selectPostingStatus(String status) {
     }
 
     private void ensureJobsPage() {
+        if (isJobsPageLoaded()) return;
+        recoverToJobsPage();
+        if (isJobsPageLoaded()) return;
+
+        // Clears a stale route view the SPA may still hold after the previous job.
+        openJobsRouteDirectly();
+        driver.navigate().refresh();
+        waitForJobsPage();
+
         if (!isJobsPageLoaded()) {
-            recoverToJobsPage();
+            throw new IllegalStateException(
+                "Admin Jobs page is not available. URL: " + driver.getCurrentUrl()
+                    + " Jobs on page: " + visibleJobNames());
         }
-        if (!isJobsPageLoaded()) throw new IllegalStateException("Admin Jobs page is not available.");
     }
 
     private void openJobsRouteDirectly() {
@@ -801,12 +918,53 @@ private void selectPostingStatus(String status) {
     }
 
     private void waitForJobsPage() {
+        String jobsUrl = buildJobsUrl();
+
+        if (!driver.getCurrentUrl().equalsIgnoreCase(jobsUrl)) {
+            driver.navigate().to(jobsUrl);
+        }
+
         wait.until(d -> {
+            requireLiveSession(d);
+
             String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
-            return url.contains("/admin/job") && !url.contains("/postreceipts") && !url.contains("/details/");
+
+            if (url.contains("/signin")) {
+                d.navigate().to(jobsUrl);
+                return false;
+            }
+
+            if (!url.contains("/admin/job")
+                || url.contains("/postreceipts")
+                || url.contains("/details/")) {
+                return false;
+            }
+
+            return !visibleJobRows().isEmpty();
         });
-        wait.until(d -> !visibleJobRows().isEmpty());
+
         waitMillis(UI_PAUSE_MS);
+    }
+
+    private void requireLiveSession(WebDriver d) {
+        java.util.Set<String> handles;
+        try {
+            handles = d.getWindowHandles();
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(
+                "Browser session ended before the Admin Jobs page finished loading.", e);
+        }
+        if (handles.isEmpty()) {
+            throw new IllegalStateException(
+                "Browser window was closed before the Admin Jobs page finished loading.");
+        }
+    }
+
+    private String buildJobsUrl() {
+        String configuredUrl = config.getURL();
+        int hash = configuredUrl.indexOf('#');
+        String base = hash >= 0 ? configuredUrl.substring(0, hash) : configuredUrl;
+        return base + "#/admin/job";
     }
 
     private void waitForJobDetailsPage(String jobName) {
@@ -851,8 +1009,19 @@ private void selectPostingStatus(String status) {
     private boolean isReceiptEmpty() {
         String range = readPaginatorRange().toLowerCase(Locale.ROOT);
         if (range.contains("of 0")) return true;
-        String body = clean(driver.findElement(By.tagName("body")).getText()).toLowerCase(Locale.ROOT);
-        return body.contains("no record") || body.contains("no records") || body.contains("no data");
+
+        // Scoped to the panel because <body> can match unrelated "No data" text.
+        for (WebElement panel : driver.findElements(RECEIPTS_PANEL)) {
+            try {
+                if (!isDisplayed(panel)) continue;
+                String text = clean(panel.getText()).toLowerCase(Locale.ROOT);
+                if (text.contains("no record") || text.contains("no records") || text.contains("no data")) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
     }
 
     private String readPaginatorRange() {
@@ -860,7 +1029,6 @@ private void selectPostingStatus(String status) {
             try {
                 if (isDisplayed(e)) return clean(e.getText());
             } catch (Exception ignored) {
-                // Element may have become stale, skip it
             }
         }
         return "";
@@ -870,50 +1038,251 @@ private void selectPostingStatus(String status) {
         List<WebElement> result = new ArrayList<>();
         for (WebElement row : driver.findElements(RECEIPT_ROWS)) {
             try {
-                if (isDisplayed(row) && !clean(row.getText()).isBlank()) result.add(row);
-            } catch (Exception ignored) {
-                // Row may have become stale, skip it
+                if (!isDisplayed(row)) continue;
+
+                // A row is usable with text or the error icon; cells may not have rendered.
+                String text = clean(row.getText());
+                boolean hasText = !text.isBlank();
+                boolean hasErrorIcon = !row.findElements(RECEIPT_ERROR_ICON).isEmpty();
+
+                if (hasText || hasErrorIcon) {
+                    result.add(row);
+                }
+            } catch (StaleElementReferenceException ignored) {
             }
         }
         return result;
     }
 
     private List<WebElement> visibleJobRows() {
+        List<WebElement> result = collectDisplayedRows(JOB_ROWS);
+
+        // Fallback for builds without the app-job wrapper; never mixes in other grids.
+        if (result.isEmpty()) {
+            result = collectDisplayedRows(JOB_ROWS_FALLBACK);
+        }
+        return result;
+    }
+
+    private List<WebElement> collectDisplayedRows(By locator) {
         List<WebElement> result = new ArrayList<>();
-        for (WebElement row : driver.findElements(JOB_ROWS)) {
+        for (WebElement row : driver.findElements(locator)) {
             try {
                 if (isDisplayed(row) && !clean(row.getText()).isBlank()) result.add(row);
             } catch (Exception ignored) {
-                // Row may have become stale, skip it
             }
         }
         return result;
     }
 
+    /**
+     * The grid is resolver-filled, so rows arrive in bursts. Wait for the row count to settle
+     * before any lookup may treat a job as unconfigured.
+     */
+    private List<WebElement> waitForSettledJobRows() {
+        int previousCount = -1;
+        int stablePasses = 0;
+        long deadline = System.currentTimeMillis()
+                + Math.max(10_000L, config.getExplicitWait() * 1_000L);
+
+        while (System.currentTimeMillis() < deadline) {
+            int count = visibleJobRows().size();
+
+            if (count > 0 && count == previousCount) {
+                if (++stablePasses >= 3) {
+                    return visibleJobRows();
+                }
+            } else {
+                stablePasses = 0;
+            }
+
+            previousCount = count;
+            waitMillis(250);
+        }
+
+        return visibleJobRows();
+    }
+
+    private WebElement findUpcomingDemandRow() {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            waitForSettledJobRows();
+
+            WebElement row = findJobRowOptional(JOB_UPCOMING_DEMAND);
+            if (row == null) {
+                row = findJobRowAcrossPages(JOB_UPCOMING_DEMAND);
+            }
+            if (row != null) {
+                return row;
+            }
+
+            if (attempt == 0) {
+                System.out.println(
+                        " Encore Up Coming Demands Job row not found on first scan; reloading the jobs grid.");
+                try {
+                    recoverToJobsPage();
+                } catch (RuntimeException e) {
+                    System.out.println("[WARN] Could not reload the jobs grid: " + e.getMessage());
+                }
+            }
+        }
+
+        System.out.println(" Jobs rendered for this client: " + visibleJobNames());
+        return null;
+    }
+
     private WebElement requireJobRow(String jobName) {
-        WebElement row = findJobRowOptional(jobName);
-        if (row == null) throw new IllegalStateException("Job row not found for " + jobName + ".");
+        WebElement row = wait.until(d -> findJobRowOptional(jobName));
+        if (row == null) {
+            row = findJobRowAcrossPages(jobName);
+        }
+        if (row == null) {
+            throw new IllegalStateException(
+                "Job row not found for '" + jobName + "'. Jobs on page: " + visibleJobNames());
+        }
         return row;
+    }
+
+    /** Finds a job row on any grid page, restoring the starting page afterwards. */
+    private WebElement findJobRowAcrossPages(String jobName) {
+        WebElement row = findJobRowOptional(jobName);
+        if (row != null) {
+            return row;
+        }
+
+        String startRange = readJobPaginatorRange();
+        Set<String> visited = new LinkedHashSet<>();
+        visited.add(startRange);
+
+        try {
+            while (visited.size() <= 50) {
+                WebElement next = visibleElement(JOB_NEXT_PAGE);
+                if (next == null || !next.isEnabled()) {
+                    break;
+                }
+
+                String before = readJobPaginatorRange();
+                clickAndWait(next);
+
+                try {
+                    wait.until(d -> {
+                        String after = readJobPaginatorRange();
+                        return !after.isBlank() && !after.equals(before);
+                    });
+                } catch (RuntimeException e) {
+                    System.out.println("[WARN] Admin Jobs paginator did not advance; stopping job scan.");
+                    break;
+                }
+
+                String marker = readJobPaginatorRange();
+                if (!visited.add(marker)) {
+                    break;
+                }
+
+                row = findJobRowOptional(jobName);
+                if (row != null) {
+                    return row;
+                }
+            }
+        } catch (RuntimeException e) {
+            System.out.println("[WARN] Admin Jobs pagination scan failed: " + e.getMessage());
+        } finally {
+            restoreJobPage(startRange, visited.size());
+        }
+
+        return null;
+    }
+
+    private void restoreJobPage(String startRange, int visitedPages) {
+        for (int guard = 0; guard <= visitedPages; guard++) {
+            if (startRange.equalsIgnoreCase(readJobPaginatorRange())) {
+                return;
+            }
+            WebElement first = visibleElement(JOB_FIRST_PAGE);
+            if (first == null || !first.isEnabled()) {
+                return;
+            }
+            try {
+                clickAndWait(first);
+            } catch (RuntimeException e) {
+                System.out.println("[WARN] Could not restore the Admin Jobs first page: " + e.getMessage());
+                return;
+            }
+        }
+    }
+
+    private String readJobPaginatorRange() {
+        for (WebElement e : driver.findElements(JOB_PAGINATOR_RANGE)) {
+            try {
+                if (isDisplayed(e)) return clean(e.getText());
+            } catch (Exception ignored) {
+            }
+        }
+        return "";
     }
 
     private WebElement findJobRowOptional(String jobName) {
         List<String> aliases = JOB_ALIASES.getOrDefault(jobName, List.of(jobName));
-        long deadline = System.currentTimeMillis() + 2000L;
-        do {
-            for (WebElement row : driver.findElements(JOB_ROWS)) {
-                try {
-                    if (!isDisplayed(row)) continue;
-                    String text = normalize(row.getText());
-                    for (String alias : aliases) {
-                        if (text.contains(normalize(alias))) return row;
-                    }
-                } catch (Exception ignored) {
-                    // Row may have become stale, skip it
-                }
+        List<String> canonicalAliases = new ArrayList<>();
+        for (String alias : aliases) {
+            canonicalAliases.add(canonical(alias));
+        }
+
+        for (WebElement row : driver.findElements(JOB_ROWS)) {
+            try {
+                if (!isDisplayed(row)) continue;
+
+                if (matchesAlias(canonicalAliases, canonical(jobNameCellText(row)))) return row;
+                if (matchesAlias(canonicalAliases, canonical(row.getText()))) return row;
+            } catch (StaleElementReferenceException ignored) {
             }
-            waitMillis(100);
-        } while (System.currentTimeMillis() < deadline);
+        }
+
+        for (WebElement row : driver.findElements(JOB_ROWS_FALLBACK)) {
+            try {
+                if (!isDisplayed(row)) continue;
+                if (matchesAlias(canonicalAliases, canonical(row.getText()))) return row;
+            } catch (StaleElementReferenceException ignored) {
+            }
+        }
         return null;
+    }
+
+    private boolean matchesAlias(List<String> canonicalAliases, String haystack) {
+        if (haystack.isEmpty()) return false;
+        for (String alias : canonicalAliases) {
+            if (!alias.isEmpty() && haystack.contains(alias)) return true;
+        }
+        return false;
+    }
+
+    private String jobNameCellText(WebElement row) {
+        for (WebElement cell : row.findElements(By.xpath("./td"))) {
+            try {
+                if (!isDisplayed(cell)) continue;
+                String text = clean(cell.getText());
+                if (!text.isBlank()) return text;
+            } catch (StaleElementReferenceException ignored) {
+            }
+        }
+        return "";
+    }
+
+    /** Normalises case, spacing and punctuation so job name variants match. */
+    private static String canonical(String value) {
+        if (value == null) return "";
+        return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    private String visibleJobNames() {
+        List<String> names = new ArrayList<>();
+        for (WebElement row : visibleJobRows()) {
+            try {
+                String text = clean(row.getText());
+                if (!text.isBlank()) names.add(text);
+            } catch (StaleElementReferenceException ignored) {
+            }
+        }
+        return names.isEmpty() ? "(none rendered)" : String.join(" | ", names);
     }
 
     private WebElement visibleInside(WebElement parent, By locator) {
@@ -966,10 +1335,6 @@ private void selectPostingStatus(String status) {
         return value == null ? "" : value.replaceAll("\\s+", " ").trim();
     }
 
-    private String normalize(String value) {
-        return clean(value).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
-    }
-
     private void waitMillis(long millis) {
         try {
             Thread.sleep(millis);
@@ -990,8 +1355,32 @@ private void selectPostingStatus(String status) {
         return signature.toString();
     }
 
+    private static final String[] MONTH_ABBREVIATIONS = {
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    };
+
+    /** Fixed format so generated rows match the timestamps read from the application. */
+    private static String runTimestamp() {
+        LocalDateTime now = LocalDateTime.now();
+        int hour12 = now.getHour() % 12;
+        if (hour12 == 0) {
+            hour12 = 12;
+        }
+        return String.format(
+                Locale.ROOT,
+                "%02d %s %04d %02d:%02d:%02d %s",
+                now.getDayOfMonth(),
+                MONTH_ABBREVIATIONS[now.getMonthValue() - 1],
+                now.getYear(),
+                hour12,
+                now.getMinute(),
+                now.getSecond(),
+                now.getHour() < 12 ? "AM" : "PM");
+    }
+
     private static class ReceiptCapture {
         int totalCount;
         Set<String> reasons = new LinkedHashSet<>();
+        Set<String> problems = new LinkedHashSet<>();
     }
 }

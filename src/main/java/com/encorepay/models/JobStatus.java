@@ -2,7 +2,9 @@ package com.encorepay.models;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class JobStatus {
 
@@ -12,7 +14,7 @@ public class JobStatus {
     private int failedCount;
     private int pendingCount;
     private String dateTime;
-    private final List<String> failureReasons = new ArrayList<>();
+    private final Map<String, Integer> failureReasonCounts = new LinkedHashMap<>();
     private String jobFailureReason;
     private String validationMessage;
 
@@ -40,7 +42,25 @@ public class JobStatus {
     public void setPendingCount(int pendingCount) { this.pendingCount = pendingCount; }
     public String getDateTime() { return dateTime; }
     public void setDateTime(String dateTime) { this.dateTime = dateTime; }
-    public List<String> getFailureReasons() { return Collections.unmodifiableList(failureReasons); }
+
+    /**
+     * Returns each unique failure reason as a formatted string:
+     * {@code [CODE] (N accounts)} or the full reason text when no bracketed code exists.
+     */
+    public List<String> getFailureReasons() {
+        List<String> result = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : failureReasonCounts.entrySet()) {
+            String code = entry.getKey();
+            int count = entry.getValue();
+            String bracket = extractCode(code);
+            if (bracket != null) {
+                result.add(bracket + " (" + count + " accounts)");
+            } else {
+                result.add(code + " (" + count + " accounts)");
+            }
+        }
+        return Collections.unmodifiableList(result);
+    }
 
     public String getJobFailureReason() { return jobFailureReason; }
 
@@ -48,12 +68,17 @@ public class JobStatus {
         this.jobFailureReason = jobFailureReason == null ? null : jobFailureReason.trim();
     }
 
+    /**
+     * Adds a failure reason, keyed by its bracketed error code when present,
+     * otherwise by the trimmed reason text. Counts occurrences so that many
+     * accounts sharing the same code collapse to a single entry.
+     */
     public void addFailureReason(String reason) {
         if (reason == null || reason.isBlank()) return;
         String clean = reason.trim();
-        if (failureReasons.stream().noneMatch(x -> x.equalsIgnoreCase(clean))) {
-            failureReasons.add(clean);
-        }
+        String code = extractCode(clean);
+        String key = (code != null && !code.isBlank()) ? code : clean;
+        failureReasonCounts.merge(key, 1, Integer::sum);
     }
 
     public String getValidationMessage() { return validationMessage; }
@@ -61,4 +86,14 @@ public class JobStatus {
 
     public String getJobStatus() { return status; }
     public String getEndDateTime() { return dateTime; }
+
+    private static String extractCode(String text) {
+        if (text == null) return null;
+        int start = text.indexOf('[');
+        int end = text.indexOf(']');
+        if (start >= 0 && end > start) {
+            return text.substring(start, end + 1).trim();
+        }
+        return null;
+    }
 }
