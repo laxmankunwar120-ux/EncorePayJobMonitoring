@@ -136,11 +136,12 @@ It runs on `ubuntu-latest` with JDK 17, stable Chrome, and `headless=true` force
 
 ### Required repository secrets
 
-Add these under **Settings → Secrets and variables → Actions**. All are optional except `CLIENT_URLS`; a missing one simply means that client is not monitored.
+Add these under **Settings → Secrets and variables → Actions**. At least one client URL must resolve, either through `CLIENT_URLS` or through `CLIENT_N_URL`; a client with no URL is simply not monitored.
 
 | Secret | Purpose |
 |--------|---------|
-| `CLIENT_URLS` | Comma-separated client URLs. Unnamed clients get a name derived from the host. |
+| `CLIENT_URLS` | Comma-separated client URLs, split on commas, semicolons, or new lines. Unnamed clients get a name derived from the host. |
+| `CLIENT_N_URL` | Admin Jobs URL for client N. A client is monitored only when this is set. |
 | `CLIENT_N_NAME` | Display name for client N. Optional. |
 | `CLIENT_N_USERNAME` | Login for client N. Optional; falls back to `ADMIN_USERNAME`. |
 | `CLIENT_N_PASSWORD` | Password for client N. Optional; falls back to `ADMIN_PASSWORD`. |
@@ -150,7 +151,7 @@ Add these under **Settings → Secrets and variables → Actions**. All are opti
 | `REPORT_EMAIL_TO`, `REPORT_EMAIL_CC` | Recipients. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP settings. |
 
-`CLIENT_N_*` runs from N=1 to N=9, matching the nine supported clients. Clients 1-9 can be configured in any mix: list all URLs in `CLIENT_URLS`, then set credentials only for the ones that differ from the shared defaults.
+`CLIENT_N_*` runs from N=1 to N=9, matching the nine supported clients. Clients 1-9 can be configured in any mix: either list every URL in `CLIENT_URLS`, or give each monitored client its own `CLIENT_N_URL`. Credentials only need setting for the ones that differ from the shared defaults. `CLIENT_URLS` is checked first, so if it is set, the `CLIENT_N_URL` values are not read.
 
 ### Local run with no config file
 

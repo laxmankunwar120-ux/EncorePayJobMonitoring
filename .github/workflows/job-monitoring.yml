@@ -18,50 +18,57 @@ jobs:
     timeout-minutes: 90
 
     env:
-      runMode: multiple
-      browser: chrome
       CLIENT_URLS: ${{ secrets.CLIENT_URLS }}
 
+      CLIENT_1_URL: ${{ secrets.CLIENT_1_URL }}
       CLIENT_1_NAME: ${{ secrets.CLIENT_1_NAME }}
       CLIENT_1_USERNAME: ${{ secrets.CLIENT_1_USERNAME }}
       CLIENT_1_PASSWORD: ${{ secrets.CLIENT_1_PASSWORD }}
       CLIENT_1_SSO: ${{ secrets.CLIENT_1_SSO }}
 
+      CLIENT_2_URL: ${{ secrets.CLIENT_2_URL }}
       CLIENT_2_NAME: ${{ secrets.CLIENT_2_NAME }}
       CLIENT_2_USERNAME: ${{ secrets.CLIENT_2_USERNAME }}
       CLIENT_2_PASSWORD: ${{ secrets.CLIENT_2_PASSWORD }}
       CLIENT_2_SSO: ${{ secrets.CLIENT_2_SSO }}
 
+      CLIENT_3_URL: ${{ secrets.CLIENT_3_URL }}
       CLIENT_3_NAME: ${{ secrets.CLIENT_3_NAME }}
       CLIENT_3_USERNAME: ${{ secrets.CLIENT_3_USERNAME }}
       CLIENT_3_PASSWORD: ${{ secrets.CLIENT_3_PASSWORD }}
       CLIENT_3_SSO: ${{ secrets.CLIENT_3_SSO }}
 
+      CLIENT_4_URL: ${{ secrets.CLIENT_4_URL }}
       CLIENT_4_NAME: ${{ secrets.CLIENT_4_NAME }}
       CLIENT_4_USERNAME: ${{ secrets.CLIENT_4_USERNAME }}
       CLIENT_4_PASSWORD: ${{ secrets.CLIENT_4_PASSWORD }}
       CLIENT_4_SSO: ${{ secrets.CLIENT_4_SSO }}
 
+      CLIENT_5_URL: ${{ secrets.CLIENT_5_URL }}
       CLIENT_5_NAME: ${{ secrets.CLIENT_5_NAME }}
       CLIENT_5_USERNAME: ${{ secrets.CLIENT_5_USERNAME }}
       CLIENT_5_PASSWORD: ${{ secrets.CLIENT_5_PASSWORD }}
       CLIENT_5_SSO: ${{ secrets.CLIENT_5_SSO }}
 
+      CLIENT_6_URL: ${{ secrets.CLIENT_6_URL }}
       CLIENT_6_NAME: ${{ secrets.CLIENT_6_NAME }}
       CLIENT_6_USERNAME: ${{ secrets.CLIENT_6_USERNAME }}
       CLIENT_6_PASSWORD: ${{ secrets.CLIENT_6_PASSWORD }}
       CLIENT_6_SSO: ${{ secrets.CLIENT_6_SSO }}
 
+      CLIENT_7_URL: ${{ secrets.CLIENT_7_URL }}
       CLIENT_7_NAME: ${{ secrets.CLIENT_7_NAME }}
       CLIENT_7_USERNAME: ${{ secrets.CLIENT_7_USERNAME }}
       CLIENT_7_PASSWORD: ${{ secrets.CLIENT_7_PASSWORD }}
       CLIENT_7_SSO: ${{ secrets.CLIENT_7_SSO }}
 
+      CLIENT_8_URL: ${{ secrets.CLIENT_8_URL }}
       CLIENT_8_NAME: ${{ secrets.CLIENT_8_NAME }}
       CLIENT_8_USERNAME: ${{ secrets.CLIENT_8_USERNAME }}
       CLIENT_8_PASSWORD: ${{ secrets.CLIENT_8_PASSWORD }}
       CLIENT_8_SSO: ${{ secrets.CLIENT_8_SSO }}
 
+      CLIENT_9_URL: ${{ secrets.CLIENT_9_URL }}
       CLIENT_9_NAME: ${{ secrets.CLIENT_9_NAME }}
       CLIENT_9_USERNAME: ${{ secrets.CLIENT_9_USERNAME }}
       CLIENT_9_PASSWORD: ${{ secrets.CLIENT_9_PASSWORD }}
@@ -95,9 +102,38 @@ jobs:
       - name: Install Maven
         run: sudo apt-get update && sudo apt-get install -y maven
 
+      - name: Verify configuration
+        # Reports which configuration variables the runner actually received. Only the
+        # variable name and a count are printed, never a value.
+        run: |
+          found=0
+          for v in CLIENT_URLS CLIENT_1_URL CLIENT_2_URL CLIENT_3_URL CLIENT_4_URL \
+                   CLIENT_5_URL CLIENT_6_URL CLIENT_7_URL CLIENT_8_URL CLIENT_9_URL; do
+            if [ -n "${!v}" ]; then
+              echo "::notice::$v is set"
+              found=$((found + 1))
+            else
+              echo "$v is NOT set"
+            fi
+          done
+          for n in 1 2 3 4 5 6 7 8 9; do
+            for f in NAME USERNAME PASSWORD; do
+              v="CLIENT_${n}_${f}"
+              if [ -n "${!v}" ]; then
+                echo "::notice::$v is set"
+              fi
+            done
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No client URL reached the runner. Set CLIENT_URLS or at least one CLIENT_N_URL repository secret."
+            exit 1
+          fi
+
       - name: Run job monitoring
         # headless is forced on: a CI runner has no display.
-        run: mvn -B clean test -Dheadless=true -DrunMode="${{ env.runMode }}"
+        # runMode/browser/headless are read as system properties, so they are passed
+        # with -D rather than as env vars.
+        run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true
 
       - name: Archive HTML report
         # Runs even when a client fails, because a failed run still produces a report.
