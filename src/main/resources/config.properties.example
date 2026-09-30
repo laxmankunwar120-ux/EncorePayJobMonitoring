@@ -1,0 +1,43 @@
+# Copy to config.properties and fill in locally. That file is git-ignored and must never
+# be committed. In CI, supply the same values through environment variables instead.
+#
+# Any value below can be overridden by an environment variable of the same name in
+# UPPER_SNAKE_CASE, e.g. client.1.username -> CLIENT_1_USERNAME.
+
+# single = run only client.1, multiple = run every configured client
+runMode=multiple
+
+client.1.name=Client One
+client.1.url=https://client1.example/#/signin
+client.1.username=
+client.1.password=
+client.1.sso=false
+
+client.2.name=Client Two
+client.2.url=https://client2.example/#/signin
+client.2.username=
+client.2.password=
+client.2.sso=false
+
+client.3.name=Client Three
+client.3.url=https://client3.example/#/signin
+client.3.username=
+client.3.password=
+client.3.sso=false
+
+# Add client.4 .. client.9 in the same shape to monitor up to nine clients.
+
+browser=chrome
+headless=false
+implicitWait=0
+explicitWait=20
+pageLoadTimeout=45
+
+reportEmailTo=
+reportEmailCc=
+reportEmailEnabled=false
+smtpHost=smtp.gmail.com
+smtpPort=587
+smtpUsername=
+smtpPassword=
+googleChatWebhookUrl=

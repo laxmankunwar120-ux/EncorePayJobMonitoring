@@ -1,5 +1,6 @@
 package com.encorepay.utilities;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.net.URI;
 import java.util.ArrayList;
@@ -28,7 +29,15 @@ public class ConfigReader {
 
     private Properties loadProperties() {
         Properties p = new Properties();
-        try (FileInputStream input = new FileInputStream(CONFIG_PATH)) {
+        File file = new File(CONFIG_PATH);
+
+        // The file is git-ignored so credentials stay out of source control. CI supplies
+        // everything through environment variables, so its absence is expected.
+        if (!file.exists()) {
+            return p;
+        }
+
+        try (FileInputStream input = new FileInputStream(file)) {
             p.load(input);
             return p;
         } catch (Exception e) {

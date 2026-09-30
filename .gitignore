@@ -9,3 +9,4 @@ target/
 screenshots/
 test-output/
 reports/
+src/main/resources/config.properties

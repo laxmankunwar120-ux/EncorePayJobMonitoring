@@ -119,6 +119,51 @@ Upcoming Demand Job:
 
 Do not commit real passwords, SMTP passwords, API keys, webhook secrets, `.env` files, or other credentials.
 
+`src/main/resources/config.properties` is git-ignored and untracked. Copy `src/main/resources/config.properties.example` to `config.properties` and fill it in locally. Any value in it can be overridden by an environment variable of the same name in UPPER_SNAKE_CASE, for example `client.1.username` becomes `CLIENT_1_USERNAME`.
+
+## Scheduled runs (GitHub Actions)
+
+`.github/workflows/job-monitoring.yml` runs the whole suite on a schedule and needs no machine kept switched on.
+
+| Time | Cron (UTC) | Cron expression |
+|------|------------|-----------------|
+| 10:00 pm IST | 16:30 UTC | `30 16 * * *` |
+| 7:00 am IST  | 01:30 UTC | `30 1 * * *` |
+
+GitHub cron is always UTC, so edit those two lines if the schedule changes. The workflow also exposes `workflow_dispatch` for a manual run from the Actions tab.
+
+It runs on `ubuntu-latest` with JDK 17, stable Chrome, and `headless=true` forced on because a runner has no display. The HTML report is uploaded as an artifact even when a client fails, since a failed run still produces a report.
+
+### Required repository secrets
+
+Add these under **Settings → Secrets and variables → Actions**. All are optional except `CLIENT_URLS`; a missing one simply means that client is not monitored.
+
+| Secret | Purpose |
+|--------|---------|
+| `CLIENT_URLS` | Comma-separated client URLs. Unnamed clients get a name derived from the host. |
+| `CLIENT_N_NAME` | Display name for client N. Optional. |
+| `CLIENT_N_USERNAME` | Login for client N. Optional; falls back to `ADMIN_USERNAME`. |
+| `CLIENT_N_PASSWORD` | Password for client N. Optional; falls back to `ADMIN_PASSWORD`. |
+| `CLIENT_N_SSO` | `true` for the SSO client. Optional, defaults to `false`. |
+| `GOOGLE_CHAT_WEBHOOK_URL` | Google Chat incoming webhook. |
+| `REPORT_EMAIL_ENABLED` | `true` to send email. |
+| `REPORT_EMAIL_TO`, `REPORT_EMAIL_CC` | Recipients. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP settings. |
+
+`CLIENT_N_*` runs from N=1 to N=9, matching the nine supported clients. Clients 1-9 can be configured in any mix: list all URLs in `CLIENT_URLS`, then set credentials only for the ones that differ from the shared defaults.
+
+### Local run with no config file
+
+Everything can come from the environment, which is how CI runs:
+
+```powershell
+$env:CLIENT_URLS = "https://client1.example/#/signin,https://client2.example/#/signin"
+$env:CLIENT_1_USERNAME = "user"
+$env:CLIENT_1_PASSWORD = "password"
+.\mvnw.cmd clean test
+```
+
+
 ## Frontend alignment
 
 The monitoring locators and flow were aligned with the supplied EncorePay frontend source for Job, Post Receipts, Job Details, and execution-detail behavior.

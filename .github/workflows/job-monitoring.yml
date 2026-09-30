@@ -1,0 +1,119 @@
+name: EncorePay Job Monitoring
+
+# GitHub cron is always UTC. 22:00 IST = 16:30 UTC, 07:00 IST = 01:30 UTC.
+on:
+  schedule:
+    - cron: "30 16 * * *"
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: encorepay-job-monitoring
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    name: Monitor all clients
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      runMode: multiple
+      browser: chrome
+      CLIENT_URLS: ${{ secrets.CLIENT_URLS }}
+
+      CLIENT_1_NAME: ${{ secrets.CLIENT_1_NAME }}
+      CLIENT_1_USERNAME: ${{ secrets.CLIENT_1_USERNAME }}
+      CLIENT_1_PASSWORD: ${{ secrets.CLIENT_1_PASSWORD }}
+      CLIENT_1_SSO: ${{ secrets.CLIENT_1_SSO }}
+
+      CLIENT_2_NAME: ${{ secrets.CLIENT_2_NAME }}
+      CLIENT_2_USERNAME: ${{ secrets.CLIENT_2_USERNAME }}
+      CLIENT_2_PASSWORD: ${{ secrets.CLIENT_2_PASSWORD }}
+      CLIENT_2_SSO: ${{ secrets.CLIENT_2_SSO }}
+
+      CLIENT_3_NAME: ${{ secrets.CLIENT_3_NAME }}
+      CLIENT_3_USERNAME: ${{ secrets.CLIENT_3_USERNAME }}
+      CLIENT_3_PASSWORD: ${{ secrets.CLIENT_3_PASSWORD }}
+      CLIENT_3_SSO: ${{ secrets.CLIENT_3_SSO }}
+
+      CLIENT_4_NAME: ${{ secrets.CLIENT_4_NAME }}
+      CLIENT_4_USERNAME: ${{ secrets.CLIENT_4_USERNAME }}
+      CLIENT_4_PASSWORD: ${{ secrets.CLIENT_4_PASSWORD }}
+      CLIENT_4_SSO: ${{ secrets.CLIENT_4_SSO }}
+
+      CLIENT_5_NAME: ${{ secrets.CLIENT_5_NAME }}
+      CLIENT_5_USERNAME: ${{ secrets.CLIENT_5_USERNAME }}
+      CLIENT_5_PASSWORD: ${{ secrets.CLIENT_5_PASSWORD }}
+      CLIENT_5_SSO: ${{ secrets.CLIENT_5_SSO }}
+
+      CLIENT_6_NAME: ${{ secrets.CLIENT_6_NAME }}
+      CLIENT_6_USERNAME: ${{ secrets.CLIENT_6_USERNAME }}
+      CLIENT_6_PASSWORD: ${{ secrets.CLIENT_6_PASSWORD }}
+      CLIENT_6_SSO: ${{ secrets.CLIENT_6_SSO }}
+
+      CLIENT_7_NAME: ${{ secrets.CLIENT_7_NAME }}
+      CLIENT_7_USERNAME: ${{ secrets.CLIENT_7_USERNAME }}
+      CLIENT_7_PASSWORD: ${{ secrets.CLIENT_7_PASSWORD }}
+      CLIENT_7_SSO: ${{ secrets.CLIENT_7_SSO }}
+
+      CLIENT_8_NAME: ${{ secrets.CLIENT_8_NAME }}
+      CLIENT_8_USERNAME: ${{ secrets.CLIENT_8_USERNAME }}
+      CLIENT_8_PASSWORD: ${{ secrets.CLIENT_8_PASSWORD }}
+      CLIENT_8_SSO: ${{ secrets.CLIENT_8_SSO }}
+
+      CLIENT_9_NAME: ${{ secrets.CLIENT_9_NAME }}
+      CLIENT_9_USERNAME: ${{ secrets.CLIENT_9_USERNAME }}
+      CLIENT_9_PASSWORD: ${{ secrets.CLIENT_9_PASSWORD }}
+      CLIENT_9_SSO: ${{ secrets.CLIENT_9_SSO }}
+
+      GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+      REPORT_EMAIL_ENABLED: ${{ secrets.REPORT_EMAIL_ENABLED }}
+      REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
+      REPORT_EMAIL_CC: ${{ secrets.REPORT_EMAIL_CC }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Install Maven
+        run: sudo apt-get update && sudo apt-get install -y maven
+
+      - name: Run job monitoring
+        # headless is forced on: a CI runner has no display.
+        run: mvn -B clean test -Dheadless=true -DrunMode="${{ env.runMode }}"
+
+      - name: Archive HTML report
+        # Runs even when a client fails, because a failed run still produces a report.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-monitoring-report-${{ github.run_number }}
+          path: test-output/report/*.html
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Archive screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_number }}
+          path: screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
