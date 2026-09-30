@@ -12,12 +12,13 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.actiondriver.ActionDriver;
 import com.encorepay.utilities.ConfigReader;
+import com.encorepay.utilities.DiagnosticWait;
 
 public class BasePage {
 
     protected final WebDriver driver;
-    protected final WebDriverWait wait;
-    protected final WebDriverWait shortWait;
+    protected final DiagnosticWait wait;
+    protected final DiagnosticWait shortWait;
     protected final ConfigReader config;
     protected final ActionDriver action;
 
@@ -27,8 +28,10 @@ public class BasePage {
 
     public BasePage(WebDriver driver, ConfigReader config) {
         this.driver = driver;
-        this.wait = new WebDriverWait(driver, Duration.ofSeconds(config.getExplicitWait()));
-        this.shortWait = new WebDriverWait(driver, Duration.ofSeconds(5));
+        // Every page wait goes through DiagnosticWait so a timeout reports the page state
+        // that caused it instead of only the page class name.
+        this.wait = new DiagnosticWait(driver, Duration.ofSeconds(config.getExplicitWait()));
+        this.shortWait = new DiagnosticWait(driver, Duration.ofSeconds(5));
         this.config = config;
         this.action = new ActionDriver(driver, config);
         PageFactory.initElements(driver, this);

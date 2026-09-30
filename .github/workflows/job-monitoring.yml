@@ -133,7 +133,7 @@ jobs:
         # headless is forced on: a CI runner has no display.
         # runMode/browser/headless are read as system properties, so they are passed
         # with -D rather than as env vars.
-        run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true
+        run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=45
 
       - name: Archive HTML report
         # Runs even when a client fails, because a failed run still produces a report.

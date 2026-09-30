@@ -12,6 +12,7 @@ import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.utilities.ConfigReader;
+import com.encorepay.utilities.DiagnosticWait;
 
 public class LoginPage extends BasePage {
 
@@ -37,6 +38,12 @@ public class LoginPage extends BasePage {
     );
 
     private static final String SSO_HOST = "sso.sarvagram.com";
+
+    /** Labelled so a timeout names the sign-in controls instead of only the page class. */
+    private final DiagnosticWait signInWait;
+
+    /** Labelled so a post-submit timeout says the sign-in was rejected or the app never navigated. */
+    private final DiagnosticWait loginOutcomeWait;
 
     @FindBy(xpath =
         "//input[@placeholder='Enter User Name']"
@@ -72,10 +79,18 @@ public class LoginPage extends BasePage {
 
     public LoginPage(WebDriver driver) {
         super(driver);
+        this.signInWait = wait.describedAs(
+            "the sign-in form (username field and Log In button) or the SSO sign-in button");
+        this.loginOutcomeWait = wait.describedAs(
+            "a login outcome (success toast or post-login navigation, or a rejection message)");
     }
 
     public LoginPage(WebDriver driver, ConfigReader config) {
         super(driver, config);
+        this.signInWait = wait.describedAs(
+            "the sign-in form (username field and Log In button) or the SSO sign-in button");
+        this.loginOutcomeWait = wait.describedAs(
+            "a login outcome (success toast or post-login navigation, or a rejection message)");
     }
 
     public void open() {
@@ -85,7 +100,7 @@ public class LoginPage extends BasePage {
     }
 
     public void waitForLoginPage() {
-        wait.until(d ->
+        signInWait.until(d ->
             isSsoButtonVisible() || isNormalLoginVisible()
         );
     }
@@ -108,7 +123,7 @@ public class LoginPage extends BasePage {
         System.out.println("Normal login detected dynamically.");
 
         attemptLogin(user, pass);
-        waitForLoginOutcome();
+        loginOutcomeWait.until(d -> isLoginSuccessful() || isLoginRejected());
 
         if (!isLoginSuccessful()) {
             throw new IllegalStateException(

@@ -25,6 +25,7 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.models.JobStatus;
 import com.encorepay.utilities.ConfigReader;
+import com.encorepay.utilities.DiagnosticWait;
 
 public class AdminJobsPage extends BasePage {
 
@@ -101,12 +102,19 @@ public class AdminJobsPage extends BasePage {
     private static final Pattern PAGER_PATTERN = Pattern.compile("(?:of)\\s+(\\d+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FULL_DATE_TIME = Pattern.compile("(?:\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?:\\s+|T)+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[APMapm]{2})?");
 
+    /** Labelled so a timeout reports the jobs route, the rendered job names, and the redirect state. */
+    private final DiagnosticWait jobsPageWait;
+
     public AdminJobsPage(WebDriver driver) {
         super(driver);
+        this.jobsPageWait = wait.describedAs(
+            "the Admin Jobs page to render at least one job row");
     }
 
     public AdminJobsPage(WebDriver driver, ConfigReader config) {
         super(driver, config);
+        this.jobsPageWait = wait.describedAs(
+            "the Admin Jobs page to render at least one job row");
     }
 
     public void navigateToAdminJobs() {
@@ -662,7 +670,7 @@ public class AdminJobsPage extends BasePage {
     }
 
     private WebElement waitForExecutionModal() {
-        return wait.until(d -> {
+        return wait.describedAs("the execution detail modal").until(d -> {
             List<WebElement> modals = d.findElements(EXECUTION_MODAL);
             for (int i = modals.size() - 1; i >= 0; i--) {
                 if (isDisplayed(modals.get(i))) return modals.get(i);
@@ -924,7 +932,7 @@ public class AdminJobsPage extends BasePage {
             driver.navigate().to(jobsUrl);
         }
 
-        wait.until(d -> {
+        jobsPageWait.until(d -> {
             requireLiveSession(d);
 
             String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
@@ -969,18 +977,23 @@ public class AdminJobsPage extends BasePage {
 
     private void waitForJobDetailsPage(String jobName) {
         String group = JOB_GROUPS.get(jobName);
-        wait.until(d -> {
-            String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
-            return group != null && url.contains("/admin/job/details/" + group.toLowerCase(Locale.ROOT));
-        });
-        wait.until(d -> d.findElements(JOB_DETAILS_ROOT).stream().anyMatch(this::isDisplayed));
-        wait.until(d -> !d.findElements(JOB_DETAIL_ROWS).isEmpty());
+        wait.describedAs("the " + jobName + " details route")
+            .until(d -> {
+                String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
+                return group != null && url.contains("/admin/job/details/" + group.toLowerCase(Locale.ROOT));
+            });
+        wait.describedAs("the " + jobName + " details component")
+            .until(d -> d.findElements(JOB_DETAILS_ROOT).stream().anyMatch(this::isDisplayed));
+        wait.describedAs("at least one execution row on " + jobName)
+            .until(d -> !d.findElements(JOB_DETAIL_ROWS).isEmpty());
         waitMillis(UI_PAUSE_MS);
     }
 
     private void waitForReceiptPage() {
-        wait.until(d -> d.getCurrentUrl().toLowerCase(Locale.ROOT).contains("/admin/job/postreceipts"));
-        wait.until(d -> isDisplayed(RECEIPT_SHOW_FILTER) || isDisplayed(RECEIPT_HIDE_FILTER) || !visibleReceiptRows().isEmpty());
+        wait.describedAs("the Post Receipts route")
+            .until(d -> d.getCurrentUrl().toLowerCase(Locale.ROOT).contains("/admin/job/postreceipts"));
+        wait.describedAs("the Post Receipts filter panel or receipt rows")
+            .until(d -> isDisplayed(RECEIPT_SHOW_FILTER) || isDisplayed(RECEIPT_HIDE_FILTER) || !visibleReceiptRows().isEmpty());
         waitMillis(UI_PAUSE_MS);
     }
 
@@ -1131,7 +1144,8 @@ public class AdminJobsPage extends BasePage {
     }
 
     private WebElement requireJobRow(String jobName) {
-        WebElement row = wait.until(d -> findJobRowOptional(jobName));
+        WebElement row = wait.describedAs("the " + jobName + " row on the jobs list")
+            .until(d -> findJobRowOptional(jobName));
         if (row == null) {
             row = findJobRowAcrossPages(jobName);
         }
