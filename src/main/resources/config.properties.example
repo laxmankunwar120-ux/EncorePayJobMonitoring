@@ -31,6 +31,7 @@ browser=chrome
 headless=false
 implicitWait=0
 explicitWait=20
+bootTimeout=90
 pageLoadTimeout=45
 
 reportEmailTo=

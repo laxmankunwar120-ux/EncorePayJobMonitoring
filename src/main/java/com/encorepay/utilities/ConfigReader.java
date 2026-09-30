@@ -109,6 +109,15 @@ public class ConfigReader {
         return getIntProperty("pageLoadTimeout", 45);
     }
 
+    /**
+     * Budget for the Angular app to bootstrap and render its first view. This is separate from
+     * the element wait because a cold CI runner can take far longer to load the bundle and
+     * first API call than a warm developer machine, and that delay is not an element problem.
+     */
+    public int getBootTimeout() {
+        return getIntProperty("bootTimeout", 90);
+    }
+
     public int getOverlayTimeout() {
         return getIntProperty("overlayTimeout", 8);
     }

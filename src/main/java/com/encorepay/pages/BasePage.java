@@ -19,6 +19,7 @@ public class BasePage {
     protected final WebDriver driver;
     protected final DiagnosticWait wait;
     protected final DiagnosticWait shortWait;
+    protected final DiagnosticWait bootWait;
     protected final ConfigReader config;
     protected final ActionDriver action;
 
@@ -32,9 +33,31 @@ public class BasePage {
         // that caused it instead of only the page class name.
         this.wait = new DiagnosticWait(driver, Duration.ofSeconds(config.getExplicitWait()));
         this.shortWait = new DiagnosticWait(driver, Duration.ofSeconds(5));
+        // A cold runner needs longer for the bundle and the first API call than the element
+        // waits assume, so bootstrap gets its own budget instead of eating the element wait.
+        this.bootWait = new DiagnosticWait(
+                driver,
+                Duration.ofSeconds(config.getBootTimeout()),
+                "the Angular app to bootstrap and render app-root");
         this.config = config;
         this.action = new ActionDriver(driver, config);
         PageFactory.initElements(driver, this);
+    }
+
+    /**
+     * Waits for the SPA to finish its first render. A timeout here is reported with the page
+     * state, which distinguishes a slow bundle from a blank or redirected page.
+     */
+    protected void awaitAppBootstrap() {
+        bootWait.until(d -> {
+            Object ready = ((JavascriptExecutor) d).executeScript("return document.readyState");
+            Object rendered = ((JavascriptExecutor) d).executeScript(
+                    "var root = document.querySelector('app-root');"
+                        + "return root ? root.innerHTML.trim().length : 0;");
+            return "complete".equalsIgnoreCase(String.valueOf(ready))
+                && rendered instanceof Integer size
+                && size > 0;
+        });
     }
 
     protected void waitForVisibility(WebElement element) {

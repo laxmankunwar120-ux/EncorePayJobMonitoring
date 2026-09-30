@@ -132,7 +132,9 @@ Do not commit real passwords, SMTP passwords, API keys, webhook secrets, `.env` 
 
 GitHub cron is always UTC, so edit those two lines if the schedule changes. The workflow also exposes `workflow_dispatch` for a manual run from the Actions tab.
 
-It runs on `ubuntu-latest` with JDK 17, stable Chrome, and `headless=true` forced on because a runner has no display. The HTML report is uploaded as an artifact even when a client fails, since a failed run still produces a report.
+It runs on `ubuntu-latest` with JDK 17, stable Chrome, and `headless=true` forced on because a runner has no display. A cold runner is given `explicitWait=45` and `bootTimeout=150`, since the Angular bundle and its first API call take longer to arrive there than on a developer machine. The HTML report is uploaded as an artifact even when a client fails, since a failed run still produces a report, and a `Check HTML report` step fails visibly if no report was generated.
+
+When any wait times out, the failure reports the current URL, page title, document readiness, the rendered text, and a screenshot path in `screenshots/`, instead of Selenium's default message that names only the page class.
 
 ### Required repository secrets
 

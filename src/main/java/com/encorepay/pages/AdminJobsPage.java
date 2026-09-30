@@ -932,6 +932,10 @@ public class AdminJobsPage extends BasePage {
             driver.navigate().to(jobsUrl);
         }
 
+        // Budget for the bundle and the jobs API before waiting on rows, so a slow first
+        // render is not mistaken for a missing jobs table.
+        awaitAppBootstrap();
+
         jobsPageWait.until(d -> {
             requireLiveSession(d);
 
@@ -950,7 +954,6 @@ public class AdminJobsPage extends BasePage {
 
             return !visibleJobRows().isEmpty();
         });
-
         waitMillis(UI_PAUSE_MS);
     }
 

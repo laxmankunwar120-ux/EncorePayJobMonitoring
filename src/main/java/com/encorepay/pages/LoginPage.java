@@ -95,14 +95,26 @@ public class LoginPage extends BasePage {
 
     public void open() {
         driver.get(config.getURL());
+        awaitAppBootstrap();
         waitForLoginPage();
         action.recordVerification("Sign-in page opened successfully at " + driver.getCurrentUrl());
     }
 
     public void waitForLoginPage() {
-        signInWait.until(d ->
-            isSsoButtonVisible() || isNormalLoginVisible()
-        );
+        try {
+            signInWait.until(d ->
+                isSsoButtonVisible() || isNormalLoginVisible()
+            );
+        } catch (RuntimeException firstFailure) {
+            // A first load that renders nothing is usually a cold cache or a stalled bundle
+            // rather than a bad configuration, so it is retried once before being reported.
+            System.out.println("[WARN] Sign-in page did not render on first load, reloading once.");
+            driver.navigate().refresh();
+            awaitAppBootstrap();
+            signInWait.until(d ->
+                isSsoButtonVisible() || isNormalLoginVisible()
+            );
+        }
     }
 
     public void login(String user, String pass) {
@@ -110,7 +122,7 @@ public class LoginPage extends BasePage {
             open();
         }
 
-        wait.until(d ->
+        signInWait.until(d ->
             isSsoButtonVisible() || isNormalLoginVisible()
         );
 
