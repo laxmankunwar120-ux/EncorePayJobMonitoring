@@ -135,6 +135,22 @@ jobs:
         # with -D rather than as env vars.
         run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=45
 
+      - name: Check HTML report
+        # Makes a missing report visible in the log instead of a silent artifact warning.
+        if: always()
+        run: |
+          if [ -d test-output/report ]; then
+            echo "test-output/report contains:"
+            ls -l test-output/report
+          else
+            echo "test-output/report does not exist."
+          fi
+          count=$(find test-output/report -maxdepth 1 -name '*.html' 2>/dev/null | wc -l)
+          echo "HTML report files found: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No HTML report was generated. Search the log above for [REPORT FAILED] or [CLIENT FAILED]."
+          fi
+
       - name: Archive HTML report
         # Runs even when a client fails, because a failed run still produces a report.
         if: always()
