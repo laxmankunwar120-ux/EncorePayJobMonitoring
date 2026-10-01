@@ -129,7 +129,7 @@ public final class EmailNotifier {
 
         StringBuilder body = new StringBuilder();
         body.append("ENCOREPAY JOB MONITORING REPORT\n")
-                .append("Generated: ").append(LocalDateTime.now().format(REPORT_TIME)).append("\n")
+                .append("Generated: ").append(LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME)).append("\n")
                 .append("Clients: ").append(clients)
                 .append(" | Successful: ").append(successful)
                 .append(" | Failed: ").append(failed)
@@ -194,7 +194,7 @@ public final class EmailNotifier {
                 .append(".footer{padding:18px 24px;color:#64748b;font-size:12px;border-top:1px solid #e5e7eb}")
                 .append("</style></head><body><div class='card'>")
                 .append("<div class='header'><h1>📊 EncorePay Job Monitoring Report</h1><div class='meta'>Generated: ")
-                .append(escape(LocalDateTime.now().format(REPORT_TIME))).append("</div></div>")
+                .append(escape(LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME))).append("</div></div>")
                 .append("<div class='summary'>")
                 .append(metric("Successful", successful))
                 .append(metric("Failed", failed))

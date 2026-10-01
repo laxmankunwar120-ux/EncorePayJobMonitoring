@@ -112,7 +112,7 @@ public final class GoogleChatNotifier {
 
         message.append("ENCOREPAY JOB MONITORING REPORT\n")
                 .append("Run Date : ")
-                .append(LocalDateTime.now().format(REPORT_TIME))
+                .append(LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME))
                 .append("\nClients  : ")
                 .append(clients)
                 .append("\n\n");

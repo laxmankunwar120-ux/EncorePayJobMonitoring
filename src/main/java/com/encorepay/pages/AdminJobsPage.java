@@ -331,7 +331,9 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
      */
     private String selectReceiptDateToday() {
         WebElement date = wait.until(ExpectedConditions.visibilityOfElementLocated(RECEIPT_DATE));
-        String today = LocalDate.now().toString();
+        // "Today" is a business-day question, so it is asked in the business zone rather than
+        // the machine's zone; a runner in UTC would otherwise pick yesterday late in the evening.
+        String today = LocalDate.now(config.getBusinessZone()).toString();
         ((JavascriptExecutor) driver).executeScript(
             "arguments[0].value=arguments[1];" +
             "arguments[0].dispatchEvent(new Event('input',{bubbles:true}));" +
@@ -420,7 +422,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         // The app echoes the applied filters into the query string. Disagreement there means the
         // counts below belong to a different filter than the one that was set, which would make
         // the numbers wrong rather than merely missing.
-        String expectedDate = LocalDate.now().toString();
+        String expectedDate = LocalDate.now(config.getBusinessZone()).toString();
         String appliedDate = queryParam("receiptdate");
         if (!appliedDate.isBlank() && !appliedDate.equalsIgnoreCase(expectedDate)) {
             capture.problems.add("Receipt date filter was applied as '" + appliedDate

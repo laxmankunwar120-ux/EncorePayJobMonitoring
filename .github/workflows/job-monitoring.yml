@@ -133,7 +133,10 @@ jobs:
         # headless is forced on: a CI runner has no display.
         # runMode/browser/headless are read as system properties, so they are passed
         # with -D rather than as env vars.
-        run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=45 -DbootTimeout=150
+        # businessZone pins both the browser and the Java-side date logic to the reporting
+        # timezone. GitHub runners are UTC, so without it the application renders every job
+        # timestamp 5:30 earlier than a workstation in Asia/Kolkata.
+        run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=45 -DbootTimeout=150 -DbusinessZone=Asia/Kolkata
 
       - name: Check HTML report
         # Makes a missing report visible in the log instead of a silent artifact warning.

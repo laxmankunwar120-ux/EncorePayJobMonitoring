@@ -29,6 +29,11 @@ client.3.sso=false
 
 browser=chrome
 headless=false
+# Business timezone for reports and for the receipt date filter.
+# The application renders job timestamps using the browser's timezone, so the browser is
+# pinned to this zone as well; without it a UTC runner prints job times 5:30 earlier.
+businessZone=Asia/Kolkata
+
 implicitWait=0
 explicitWait=20
 bootTimeout=90

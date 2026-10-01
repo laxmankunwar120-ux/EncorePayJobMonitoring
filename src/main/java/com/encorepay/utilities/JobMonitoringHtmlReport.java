@@ -4,6 +4,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
+import java.util.TimeZone;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -188,10 +189,12 @@ public final class JobMonitoringHtmlReport {
     }
 
     private static StringBuilder baseHtml() {
-        String timestamp =
-                new SimpleDateFormat(
+        SimpleDateFormat headerFormat = new SimpleDateFormat(
                         "dd-MMM-yyyy HH:mm:ss"
-                ).format(new Date());
+                );
+                headerFormat.setTimeZone(
+                        TimeZone.getTimeZone(new ConfigReader().getBusinessZone()));
+        String timestamp = headerFormat.format(new Date());
 
         return new StringBuilder()
                 .append("<!doctype html><html><head><meta charset='UTF-8'>")
@@ -569,7 +572,11 @@ public final class JobMonitoringHtmlReport {
                 }
             }
 
-            String stamp = new SimpleDateFormat("yyyy-MM-dd_HHmmss").format(new Date());
+            // The file name is stamped in the business zone so a scheduled run is named for the
+            // business day it reports on, whatever timezone the runner happens to be in.
+            SimpleDateFormat stampFormat = new SimpleDateFormat("yyyy-MM-dd_HHmmss");
+            stampFormat.setTimeZone(TimeZone.getTimeZone(new ConfigReader().getBusinessZone()));
+            String stamp = stampFormat.format(new Date());
             File output = new File(dir, prefix + stamp + ".html");
 
             Files.writeString(output.toPath(), html.toString(), StandardCharsets.UTF_8);

@@ -91,8 +91,20 @@ public final class WebDriverFactory {
         driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(config.getPageLoadTimeout()));
         driver.manage().window().maximize();
 
-        if (driver instanceof ChromiumDriver chromiumDriver) {
+if (driver instanceof ChromiumDriver chromiumDriver) {
             try {
+                // The application renders every job timestamp with the browser's own date
+                // formatting. A CI runner's browser defaults to UTC, which would print each
+                // application instant 5:30 earlier than a workstation in the business zone.
+                // Pinning the browser timezone makes the application render the same business
+                // timestamps everywhere; the application's own values are not altered.
+                Map<String, Object> timezoneParams = new HashMap<>();
+                timezoneParams.put("timezoneId", config.getBusinessZone().getId());
+                chromiumDriver.executeCdpCommand("Emulation.setTimezoneOverride", timezoneParams);
+
+                System.out.println("[INFO] Browser timezone set to " + config.getBusinessZone().getId()
+                    + " (JVM default is " + java.time.ZoneId.systemDefault().getId() + ").");
+
                 Map<String, Object> grantParams = new HashMap<>();
                 grantParams.put("permissions", List.of("geolocation", "notifications"));
                 chromiumDriver.executeCdpCommand("Browser.grantPermissions", grantParams);

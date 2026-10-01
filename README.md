@@ -134,7 +134,15 @@ GitHub cron is always UTC, so edit those two lines if the schedule changes. The 
 
 It runs on `ubuntu-latest` with JDK 17, stable Chrome, and `headless=true` forced on because a runner has no display. A cold runner is given `explicitWait=45` and `bootTimeout=150`, since the Angular bundle and its first API call take longer to arrive there than on a developer machine. The HTML report is uploaded as an artifact even when a client fails, since a failed run still produces a report, and a `Check HTML report` step fails visibly if no report was generated.
 
-When any wait times out, the failure reports the current URL, page title, document readiness, the rendered text, and a screenshot path in `screenshots/`, instead of Selenium's default message that names only the page class.
+When any wait times out, the failure reports the current URL, page title, document readiness, the rendered text, the step it stopped at, and a screenshot path in `screenshots/`, instead of Selenium's default message that names only the page class.
+
+### Reporting timezone
+
+Job Monitoring reports in a single business timezone, `Asia/Kolkata` by default, set with `businessZone` (or `-DbusinessZone=...`).
+
+This matters because the application renders every job timestamp with the **browser's** date formatting, not with a zone the automation supplies. A GitHub runner's browser is UTC, so the same application instant would be printed 5:30 earlier there than on a workstation in India. The workflow therefore pins the browser timezone as well as the Java-side date logic, so an identical run produces an identical report on both. No application-supplied timestamp is adjusted.
+
+The same zone drives "business today" for the receipt date filter and the report's `Generated` stamp. Without it, a run in the UTC window between midnight and 05:30 IST would filter yesterday's receipts.
 
 ### Required repository secrets
 

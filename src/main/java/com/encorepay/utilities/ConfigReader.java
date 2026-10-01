@@ -3,6 +3,8 @@ package com.encorepay.utilities;
 import java.io.File;
 import java.io.FileInputStream;
 import java.net.URI;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -103,6 +105,25 @@ public class ConfigReader {
 
     public int getExplicitWait() {
         return getIntProperty("explicitWait", 20);
+    }
+
+    /**
+     * The business timezone that Job Monitoring reports in.
+     *
+     * Timestamps shown by the application are rendered by the browser's own date formatting, so the
+     * browser has to run in this zone for a report to read the same everywhere. The Java side uses
+     * the same zone for "business today" and for report metadata. Default Asia/Kolkata.
+     */
+    public ZoneId getBusinessZone() {
+        String zone = getProperty("businessZone", "Asia/Kolkata");
+        if (zone == null || zone.isBlank()) zone = "Asia/Kolkata";
+
+        try {
+            return ZoneId.of(zone.trim());
+        } catch (DateTimeException e) {
+            System.out.println("[WARN] Invalid businessZone '" + zone + "', falling back to Asia/Kolkata.");
+            return ZoneId.of("Asia/Kolkata");
+        }
     }
 
     public int getPageLoadTimeout() {
