@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -25,7 +26,6 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.models.JobStatus;
 import com.encorepay.utilities.ConfigReader;
-import com.encorepay.utilities.DiagnosticWait;
 
 public class AdminJobsPage extends BasePage {
 
@@ -53,6 +53,30 @@ public class AdminJobsPage extends BasePage {
 
     private static final By JOB_ROWS = By.cssSelector(
             "app-job app-custom-table table.table-box tbody tr, app-job table.table-box tbody tr");
+/**
+     * The Admin menu is opened by mouseover, not by clicking the trigger, so the trigger must be
+     * hovered before the panel exists. This matches the layout template: the button carries
+     * (mouseover)="openMenu(admin)" and the panel is rendered by *ngIf="show".
+     */
+    private static final By ADMIN_MENU_TRIGGER = By.xpath(
+            "//button[contains(@class,'menu-btn') and normalize-space()='Admin']"
+                + " | //a[contains(@class,'menu-btn') and normalize-space()='Admin']"
+                + " | //*[@role='button' and normalize-space()='Admin']");
+
+    /** Full-screen backdrop that only exists while a top-level menu is open. */
+    private static final By ADMIN_MENU_OVERLAY = By.xpath(
+            "//div[contains(@class,'fixed') and contains(@class,'bg-black') and contains(@style,'z-index')]");
+
+    /** The panel itself. Both the backdrop and the panel close on click-outside and mouseleave. */
+    private static final By ADMIN_MENU_PANEL = By.xpath(
+            "//div[contains(@class,'bg-gray-100') and contains(@class,'overflow-auto')]");
+
+    /** The Job entry, rendered inside the open panel. Its label is exactly "Job", not "Jobs". */
+    private static final By ADMIN_MENU_JOB_ITEM = By.xpath(
+            "//div[contains(@class,'mega-menu-btn')]/button[normalize-space()='Job']"
+                + " | //li//button[normalize-space()='Job']");
+
+    private static final By JOBS_PAGE_ROOT = By.cssSelector("app-job");
     private static final By VIEW_ACTION = By.xpath(".//button[normalize-space()='View'] | .//a[normalize-space()='View']");
     private static final By RECEIPT_ACTION = By.xpath(".//button[normalize-space()='Receipt'] | .//a[normalize-space()='Receipt']");
 
@@ -102,29 +126,29 @@ public class AdminJobsPage extends BasePage {
     private static final Pattern PAGER_PATTERN = Pattern.compile("(?:of)\\s+(\\d+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FULL_DATE_TIME = Pattern.compile("(?:\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?:\\s+|T)+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[APMapm]{2})?");
 
-    /** Labelled so a timeout reports the jobs route, the rendered job names, and the redirect state. */
-    private final DiagnosticWait jobsPageWait;
+    private final WebDriverWait jobsPageWait;
 
     public AdminJobsPage(WebDriver driver) {
         super(driver);
-        this.jobsPageWait = wait.describedAs(
-            "the Admin Jobs page to render at least one job row");
+        this.jobsPageWait = wait;
     }
 
     public AdminJobsPage(WebDriver driver, ConfigReader config) {
         super(driver, config);
-        this.jobsPageWait = wait.describedAs(
-            "the Admin Jobs page to render at least one job row");
+        this.jobsPageWait = wait;
     }
 
+/**
+     * Follows the flow a user performs: hover Admin, wait for the submenu, click Job inside it,
+     * then confirm the Admin Jobs page actually rendered. Clicking the Admin trigger directly
+     * cannot work, because the trigger only opens the menu on mouseover.
+     */
     public void navigateToAdminJobs() {
-        String jobsUrl = buildJobsUrl();
-        String currentUrl = driver.getCurrentUrl();
-        if (!currentUrl.equalsIgnoreCase(jobsUrl)) {
-            driver.navigate().to(jobsUrl);
-            waitForPageLoad();
-        }
-        waitForJobsPage();
+        if (isJobsPageLoaded()) return;
+        awaitAppBootstrap();
+        hoverAdminMenu();
+        clickJobInAdminMenu();
+        verifyAdminJobsPageRendered();
     }
 
     public boolean isJobsPageLoaded() {
@@ -670,7 +694,7 @@ public class AdminJobsPage extends BasePage {
     }
 
     private WebElement waitForExecutionModal() {
-        return wait.describedAs("the execution detail modal").until(d -> {
+        return wait.until(d -> {
             List<WebElement> modals = d.findElements(EXECUTION_MODAL);
             for (int i = modals.size() - 1; i >= 0; i--) {
                 if (isDisplayed(modals.get(i))) return modals.get(i);
@@ -817,12 +841,7 @@ public class AdminJobsPage extends BasePage {
 
 
             if (!isExecutionModalClosed()) {
-                try {
-                    ((JavascriptExecutor) driver).executeScript(
-                        "document.querySelectorAll('mat-dialog-container, .cdk-overlay-backdrop, .cdk-overlay-container .cdk-global-overlay-wrapper').forEach(e => e.remove());"
-                    );
-                    waitMillis(200);
-                } catch (Exception ignored) {}
+                action.waitForOverlayToClear();
             }
         } catch (Exception e) {
             System.out.println("[WARN] Non-critical execution modal close note: " + e.getMessage());
@@ -893,8 +912,7 @@ public class AdminJobsPage extends BasePage {
             }
         } catch (Exception ignored) {
         }
-        openJobsRouteDirectly();
-        waitForJobsPage();
+        navigateToAdminJobs();
     }
 
     private void ensureJobsPage() {
@@ -902,10 +920,7 @@ public class AdminJobsPage extends BasePage {
         recoverToJobsPage();
         if (isJobsPageLoaded()) return;
 
-        // Clears a stale route view the SPA may still hold after the previous job.
-        openJobsRouteDirectly();
-        driver.navigate().refresh();
-        waitForJobsPage();
+        navigateToAdminJobs();
 
         if (!isJobsPageLoaded()) {
             throw new IllegalStateException(
@@ -914,47 +929,143 @@ public class AdminJobsPage extends BasePage {
         }
     }
 
-    private void openJobsRouteDirectly() {
-        String configuredUrl = config.getURL();
-        int hash = configuredUrl.indexOf('#');
-        String base = hash >= 0 ? configuredUrl.substring(0, hash) : configuredUrl;
-        String jobsUrl = base + "#/admin/job";
-        if (!driver.getCurrentUrl().equalsIgnoreCase(jobsUrl)) {
-            driver.navigate().to(jobsUrl);
-        }
-        waitForPageLoad();
-    }
-
     private void waitForJobsPage() {
-        String jobsUrl = buildJobsUrl();
-
-        if (!driver.getCurrentUrl().equalsIgnoreCase(jobsUrl)) {
-            driver.navigate().to(jobsUrl);
-        }
-
-        // Budget for the bundle and the jobs API before waiting on rows, so a slow first
-        // render is not mistaken for a missing jobs table.
         awaitAppBootstrap();
 
         jobsPageWait.until(d -> {
             requireLiveSession(d);
 
             String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
-
-            if (url.contains("/signin")) {
-                d.navigate().to(jobsUrl);
-                return false;
-            }
-
             if (!url.contains("/admin/job")
                 || url.contains("/postreceipts")
                 || url.contains("/details/")) {
                 return false;
             }
 
-            return !visibleJobRows().isEmpty();
+            return !visibleJobRows().isEmpty() && findJobRowOptional(JOB_POST_RECEIPTS) != null;
         });
-        waitMillis(UI_PAUSE_MS);
+    }
+
+/** Step 1 and 2: hover the Admin trigger, then wait for the submenu to be rendered. */
+    private void hoverAdminMenu() {
+        RuntimeException lastFailure = null;
+
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                action.waitForOverlayToClear();
+                WebElement admin = waitForNavigation("the Admin menu trigger",
+                        d -> visibleElement(ADMIN_MENU_TRIGGER));
+
+                // moveToElement is required: the trigger opens the menu on mouseover, so a
+                // plain click would do nothing at all.
+                new Actions(driver).moveToElement(admin).perform();
+
+                waitForNavigation("the Admin submenu to become visible", d -> isAdminSubmenuVisible());
+                return;
+            } catch (RuntimeException e) {
+                lastFailure = e;
+                System.out.println("[WARN] Admin menu hover attempt " + attempt + " failed: " + e.getMessage());
+            }
+        }
+
+        throw new IllegalStateException(
+                describeNavigationFailure("Admin submenu could not be opened by hovering Admin."),
+                lastFailure);
+    }
+
+    /** Step 3 and 4: find Job only once the submenu exists, then click it. */
+    private void clickJobInAdminMenu() {
+        RuntimeException lastFailure = null;
+
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                WebElement job = waitForNavigation("the Job item inside the Admin submenu",
+                        d -> visibleElement(ADMIN_MENU_JOB_ITEM));
+
+                // The panel closes on mouseleave, so the pointer is moved onto the item before
+                // clicking instead of letting the click jump in from outside the panel.
+                new Actions(driver).moveToElement(job).perform();
+                waitForNavigation("the Job item to become clickable",
+                        d -> isDisplayed(ADMIN_MENU_JOB_ITEM) && isElementEnabled(ADMIN_MENU_JOB_ITEM));
+
+                // Re-found immediately before the click because Angular re-creates the panel
+                // on every open, which leaves earlier references stale.
+                visibleElement(ADMIN_MENU_JOB_ITEM).click();
+                return;
+            } catch (StaleElementReferenceException e) {
+                lastFailure = e;
+                System.out.println("[WARN] Job item went stale, reopening the Admin submenu.");
+                hoverAdminMenu();
+            } catch (RuntimeException e) {
+                lastFailure = e;
+                System.out.println("[WARN] Job click attempt " + attempt + " failed: " + e.getMessage());
+                if (!isAdminSubmenuVisible()) hoverAdminMenu();
+            }
+        }
+
+        throw new IllegalStateException(
+                describeNavigationFailure("Job could not be clicked inside the Admin submenu."),
+                lastFailure);
+    }
+
+    /** Step 5: confirm the Admin Jobs page rendered, using its own UI rather than the URL. */
+    private void verifyAdminJobsPageRendered() {
+        waitForNavigation("the Admin Jobs page to render its jobs table",
+                d -> isAdminJobsPageRendered());
+    }
+
+    private boolean isAdminSubmenuVisible() {
+        return isDisplayed(ADMIN_MENU_OVERLAY) && isDisplayed(ADMIN_MENU_PANEL);
+    }
+
+    /**
+     * UI evidence that the Jobs page is really loaded: the app-job component is on screen and
+     * its table has rows. The URL is deliberately not part of this, because the route can change
+     * before the component has rendered.
+     */
+    private boolean isAdminJobsPageRendered() {
+        return isDisplayed(JOBS_PAGE_ROOT) && !visibleJobRows().isEmpty();
+    }
+
+    private boolean isElementEnabled(By locator) {
+        WebElement element = visibleElement(locator);
+        if (element == null) return false;
+        try {
+            return element.isEnabled();
+        } catch (StaleElementReferenceException e) {
+            return false;
+        }
+    }
+
+    /**
+     * A navigation wait that explains itself. The stock message names only the page class, so a
+     * failure here records the URL, which menu pieces were visible, and a screenshot instead.
+     */
+    private <T> T waitForNavigation(String description, Function<? super WebDriver, T> condition) {
+        try {
+            return jobsPageWait.until(condition);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(
+                    describeNavigationFailure("Timed out waiting for " + description + "."), e);
+        }
+    }
+
+    private String describeNavigationFailure(String reason) {
+        action.captureStep("Admin Jobs navigation failure");
+
+        String url;
+        try {
+            url = driver.getCurrentUrl();
+        } catch (RuntimeException e) {
+            url = "<unavailable>";
+        }
+
+        return reason
+                + " URL: " + url
+                + " | Admin trigger visible: " + isDisplayed(ADMIN_MENU_TRIGGER)
+                + " | Admin submenu visible: " + isAdminSubmenuVisible()
+                + " | Job item visible: " + isDisplayed(ADMIN_MENU_JOB_ITEM)
+                + " | Jobs page rendered: " + isAdminJobsPageRendered();
     }
 
     private void requireLiveSession(WebDriver d) {
@@ -971,32 +1082,20 @@ public class AdminJobsPage extends BasePage {
         }
     }
 
-    private String buildJobsUrl() {
-        String configuredUrl = config.getURL();
-        int hash = configuredUrl.indexOf('#');
-        String base = hash >= 0 ? configuredUrl.substring(0, hash) : configuredUrl;
-        return base + "#/admin/job";
-    }
-
     private void waitForJobDetailsPage(String jobName) {
         String group = JOB_GROUPS.get(jobName);
-        wait.describedAs("the " + jobName + " details route")
-            .until(d -> {
+        wait.until(d -> {
                 String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
                 return group != null && url.contains("/admin/job/details/" + group.toLowerCase(Locale.ROOT));
             });
-        wait.describedAs("the " + jobName + " details component")
-            .until(d -> d.findElements(JOB_DETAILS_ROOT).stream().anyMatch(this::isDisplayed));
-        wait.describedAs("at least one execution row on " + jobName)
-            .until(d -> !d.findElements(JOB_DETAIL_ROWS).isEmpty());
+        wait.until(d -> d.findElements(JOB_DETAILS_ROOT).stream().anyMatch(this::isDisplayed));
+        wait.until(d -> !d.findElements(JOB_DETAIL_ROWS).isEmpty());
         waitMillis(UI_PAUSE_MS);
     }
 
     private void waitForReceiptPage() {
-        wait.describedAs("the Post Receipts route")
-            .until(d -> d.getCurrentUrl().toLowerCase(Locale.ROOT).contains("/admin/job/postreceipts"));
-        wait.describedAs("the Post Receipts filter panel or receipt rows")
-            .until(d -> isDisplayed(RECEIPT_SHOW_FILTER) || isDisplayed(RECEIPT_HIDE_FILTER) || !visibleReceiptRows().isEmpty());
+        wait.until(d -> d.getCurrentUrl().toLowerCase(Locale.ROOT).contains("/admin/job/postreceipts"));
+        wait.until(d -> isDisplayed(RECEIPT_SHOW_FILTER) || isDisplayed(RECEIPT_HIDE_FILTER) || !visibleReceiptRows().isEmpty());
         waitMillis(UI_PAUSE_MS);
     }
 
@@ -1096,27 +1195,22 @@ public class AdminJobsPage extends BasePage {
      * before any lookup may treat a job as unconfigured.
      */
     private List<WebElement> waitForSettledJobRows() {
-        int previousCount = -1;
-        int stablePasses = 0;
-        long deadline = System.currentTimeMillis()
-                + Math.max(10_000L, config.getExplicitWait() * 1_000L);
-
-        while (System.currentTimeMillis() < deadline) {
+        final int[] previousCount = { -1 };
+        final int[] stablePasses = { 0 };
+        return wait.until(d -> {
             int count = visibleJobRows().size();
 
-            if (count > 0 && count == previousCount) {
-                if (++stablePasses >= 3) {
+            if (count > 0 && count == previousCount[0]) {
+                if (++stablePasses[0] >= 3) {
                     return visibleJobRows();
                 }
             } else {
-                stablePasses = 0;
+                stablePasses[0] = 0;
             }
 
-            previousCount = count;
-            waitMillis(250);
-        }
-
-        return visibleJobRows();
+            previousCount[0] = count;
+            return null;
+        });
     }
 
     private WebElement findUpcomingDemandRow() {
@@ -1147,8 +1241,7 @@ public class AdminJobsPage extends BasePage {
     }
 
     private WebElement requireJobRow(String jobName) {
-        WebElement row = wait.describedAs("the " + jobName + " row on the jobs list")
-            .until(d -> findJobRowOptional(jobName));
+        WebElement row = wait.until(d -> findJobRowOptional(jobName));
         if (row == null) {
             row = findJobRowAcrossPages(jobName);
         }
@@ -1353,12 +1446,7 @@ public class AdminJobsPage extends BasePage {
     }
 
     private void waitMillis(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Thread interrupted while waiting for application state.", e);
-        }
+        waitForUiStable();
     }
 
     private String receiptResultsSignature() {
