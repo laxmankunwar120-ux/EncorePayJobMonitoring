@@ -7,13 +7,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.support.ui.WebDriverWait;
 import org.testng.Assert;
 import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.Test;
 
+import com.encorepay.actiondriver.ActionDriver;
 import com.encorepay.base.WebDriverFactory;
 import com.encorepay.models.ClientConfig;
 import com.encorepay.models.JobStatus;
@@ -164,6 +164,7 @@ public class MultiClientAdminJobsTest {
 
     private ClientRunResult runClient(ClientConfig client) {
         WebDriver driver = null;
+        ActionDriver action = null;
         LoginPage loginPage = null;
         List<JobStatus> statuses = new ArrayList<>();
         boolean loginSucceeded = false;
@@ -173,12 +174,15 @@ public class MultiClientAdminJobsTest {
             ConfigReader clientConfig = new ConfigReader(client);
             driver = WebDriverFactory.create(clientConfig);
             WebDriverFactory.configure(driver, clientConfig);
+            action = new ActionDriver(driver, clientConfig);
 
             System.out.println("[CLIENT URL] " + safeClientName(client) + " -> " + client.getUrl());
+            action.markStep("open client application");
             driver.get(client.getUrl());
-            waitForDocumentReady(driver, clientConfig);
 
+            action.markStep("authenticate");
             loginPage = new LoginPage(driver, clientConfig);
+            loginPage.waitForVisibleApplicationScreen();
             if (client.isSso()) {
                 loginPage.ssoLogin(client.getUsername(), client.getPassword());
             } else {
@@ -186,8 +190,7 @@ public class MultiClientAdminJobsTest {
             }
             loginSucceeded = true;
 
-            waitForDocumentReady(driver, clientConfig);
-
+            action.markStep("navigate to Admin Jobs");
             AdminJobsPage adminJobsPage = new AdminJobsPage(driver, clientConfig);
             adminJobsPage.navigateToAdminJobs();
 
@@ -195,10 +198,15 @@ public class MultiClientAdminJobsTest {
                 throw new IllegalStateException("Admin Jobs page did not load.");
             }
 
+            action.markStep("monitor configured jobs");
             statuses = adminJobsPage.monitorAllConfiguredJobs();
             validateMonitoringData(statuses);
-        } catch (Throwable e) {
-            failureMessage = safeMessage(e);
+        } catch (Exception e) {
+            // A genuine failure records the step it stopped at, the URL, the title, the page
+            // readiness and a screenshot, so it can be diagnosed without rerunning the suite.
+            failureMessage = action == null
+                ? safeMessage(e)
+                : action.captureFailure(safeMessage(e));
         } finally {
             if (driver != null) {
                 if (loginSucceeded && loginPage != null && !loginPage.isLoginPageVisible()) {
@@ -252,20 +260,6 @@ public class MultiClientAdminJobsTest {
         System.out.println("[CLIENT LOGOUT] Sign-in state confirmed.");
     }
 
-    private void waitForDocumentReady(WebDriver driver, ConfigReader config) {
-        new WebDriverWait(
-            driver,
-            Duration.ofSeconds(Math.max(10, config.getPageLoadTimeout()))
-        ).until(d -> {
-            try {
-                Object state = ((JavascriptExecutor) d).executeScript("return document.readyState");
-                return "complete".equalsIgnoreCase(String.valueOf(state));
-            } catch (Exception e) {
-                return false;
-            }
-        });
-    }
-
     private void validateMonitoringData(List<JobStatus> statuses) {
         Assert.assertNotNull(statuses, "Job monitoring data must not be null.");
         Assert.assertTrue(statuses.size() >= 2 && statuses.size() <= 3, "Expected two required jobs and at most one optional Upcoming Demand job.");
@@ -283,7 +277,7 @@ public class MultiClientAdminJobsTest {
             // Partial capture is acceptable as long as the gap is explained on the row.
             boolean reasonsCaptured = !post.getFailureReasons().isEmpty();
             boolean gapExplained = post.getJobFailureReason() != null
-                    && post.getJobFailureReason().contains("Failure reason capture incomplete");
+                    && post.getJobFailureReason().contains("Receipt capture incomplete");
             Assert.assertTrue(
                     reasonsCaptured || gapExplained,
                     "Failed receipts were found but no reason or capture-gap note was recorded.");
@@ -332,7 +326,8 @@ public class MultiClientAdminJobsTest {
     private String safeMessage(Throwable e) {
         if (e == null) return "Unknown error.";
         String message = e.getMessage();
-        return message == null || message.isBlank() ? e.getClass().getSimpleName() : message;
+        String type = e.getClass().getSimpleName();
+        return message == null || message.isBlank() ? type : type + ": " + message;
     }
 
     private static final class ClientRunResult {

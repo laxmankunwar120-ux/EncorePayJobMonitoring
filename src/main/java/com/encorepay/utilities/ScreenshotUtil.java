@@ -46,8 +46,9 @@ public final class ScreenshotUtil {
         addDetail(VERIFICATIONS, currentTestName(null), detail);
     }
 
-    public static void captureCurrentTestStep(WebDriver driver, String stepLabel) {
-        captureScreenshot(driver, currentTestName(stepLabel), stepLabel);
+    /** Returns the repo-relative screenshot path so a failure message can point at it. */
+    public static String captureCurrentTestStep(WebDriver driver, String stepLabel) {
+        return captureScreenshot(driver, currentTestName(stepLabel), stepLabel);
     }
 
     /** Returns a repo-relative path, or an empty string when the capture was not possible. */

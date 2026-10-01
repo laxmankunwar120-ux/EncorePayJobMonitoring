@@ -1,9 +1,11 @@
 package com.encorepay.pages;
 
 import java.time.Duration;
+import java.util.Locale;
 
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.PageFactory;
@@ -12,14 +14,29 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.actiondriver.ActionDriver;
 import com.encorepay.utilities.ConfigReader;
-import com.encorepay.utilities.DiagnosticWait;
 
 public class BasePage {
 
+/**
+     * The application's own header, which the layout renders only for a logged-in user and only
+     * as <nav> containing its menu-btn triggers. A bare //nav would also match unrelated markup
+     * and could make an unauthenticated page look signed in.
+     */
+    protected static final By APPLICATION_NAVIGATION = By.xpath(
+        "//nav[.//button[contains(@class,'menu-btn')]]"
+            + " | //button[normalize-space()='Dashboard']"
+            + " | //button[normalize-space()='Admin'] | //button[normalize-space()='Collections']"
+            + " | //a[normalize-space()='Dashboard'] | //a[normalize-space()='Admin']"
+            + " | //a[normalize-space()='Collections']");
+    protected static final By APPLICATION_LOGIN = By.xpath(
+        "//app-login//input | //input[@name='username' or @formcontrolname='username']"
+            + " | //app-login//button[normalize-space()='Sign in with SSO']"
+            + " | //button[normalize-space()='Log In']");
+
     protected final WebDriver driver;
-    protected final DiagnosticWait wait;
-    protected final DiagnosticWait shortWait;
-    protected final DiagnosticWait bootWait;
+    protected final WebDriverWait wait;
+    protected final WebDriverWait shortWait;
+    protected final WebDriverWait bootWait;
     protected final ConfigReader config;
     protected final ActionDriver action;
 
@@ -29,35 +46,66 @@ public class BasePage {
 
     public BasePage(WebDriver driver, ConfigReader config) {
         this.driver = driver;
-        // Every page wait goes through DiagnosticWait so a timeout reports the page state
-        // that caused it instead of only the page class name.
-        this.wait = new DiagnosticWait(driver, Duration.ofSeconds(config.getExplicitWait()));
-        this.shortWait = new DiagnosticWait(driver, Duration.ofSeconds(5));
-        // A cold runner needs longer for the bundle and the first API call than the element
-        // waits assume, so bootstrap gets its own budget instead of eating the element wait.
-        this.bootWait = new DiagnosticWait(
-                driver,
-                Duration.ofSeconds(config.getBootTimeout()),
-                "the Angular app to bootstrap and render app-root");
+        this.wait = new WebDriverWait(driver, Duration.ofSeconds(config.getExplicitWait()));
+        this.shortWait = new WebDriverWait(driver, Duration.ofSeconds(5));
+        this.bootWait = new WebDriverWait(driver, Duration.ofSeconds(config.getBootTimeout()));
         this.config = config;
         this.action = new ActionDriver(driver, config);
         PageFactory.initElements(driver, this);
     }
 
-    /**
-     * Waits for the SPA to finish its first render. A timeout here is reported with the page
-     * state, which distinguishes a slow bundle from a blank or redirected page.
-     */
     protected void awaitAppBootstrap() {
-        bootWait.until(d -> {
-            Object ready = ((JavascriptExecutor) d).executeScript("return document.readyState");
-            Object rendered = ((JavascriptExecutor) d).executeScript(
-                    "var root = document.querySelector('app-root');"
-                        + "return root ? root.innerHTML.trim().length : 0;");
-            return "complete".equalsIgnoreCase(String.valueOf(ready))
-                && rendered instanceof Integer size
-                && size > 0;
-        });
+        bootWait.until(d -> documentComplete(d) && hasApplicationIdentity(d) && isVisibleApplicationScreen());
+    }
+
+    public void waitForVisibleApplicationScreen() {
+        awaitAppBootstrap();
+    }
+
+    protected boolean isVisibleApplicationScreen() {
+        return anyVisible(APPLICATION_LOGIN) || isAuthenticatedApplicationVisible();
+    }
+
+    protected boolean isAuthenticatedApplicationVisible() {
+        return anyVisible(APPLICATION_NAVIGATION);
+    }
+
+    protected boolean anyVisible(By locator) {
+        try {
+            for (WebElement element : driver.findElements(locator)) {
+                try {
+                    if (element.isDisplayed()) return true;
+                } catch (StaleElementReferenceException ignored) {
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private boolean documentComplete(WebDriver d) {
+        try {
+            Object state = ((JavascriptExecutor) d).executeScript("return document.readyState");
+            return "complete".equalsIgnoreCase(String.valueOf(state));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean hasApplicationIdentity(WebDriver d) {
+        try {
+            String url = d.getCurrentUrl();
+            String title = d.getTitle();
+            if (url == null || url.isBlank() || !url.toLowerCase(Locale.ROOT).startsWith("http")) {
+                return false;
+            }
+            String expectedHost = config.getURL() == null ? "" : config.getURL().toLowerCase(Locale.ROOT);
+            String current = url.toLowerCase(Locale.ROOT);
+            String pageTitle = title == null ? "" : title.toLowerCase(Locale.ROOT);
+            return pageTitle.contains("encore") || (!expectedHost.isBlank() && current.startsWith(expectedHost.split("#", 2)[0]));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     protected void waitForVisibility(WebElement element) {

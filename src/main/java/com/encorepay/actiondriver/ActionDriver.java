@@ -2,6 +2,7 @@ package com.encorepay.actiondriver;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
@@ -21,6 +22,7 @@ public class ActionDriver {
     private final WebDriverWait wait;
     private final WebDriverWait shortWait;
     private final ConfigReader config;
+    private String currentStep = "startup";
 
     private static final By TRANSIENT_FEEDBACK = By.xpath(
         "//*[contains(@class,'toast') or contains(@class,'snack')"
@@ -263,10 +265,6 @@ public class ActionDriver {
         }
     }
 
-    public void humanPause(long millis) {
-        System.out.println("[WARN] Deprecated humanPause (Thread.sleep) called. Ignoring hard sleep, ensuring UI stability instead.");
-        waitForUiStable();
-    }
 
     public boolean validate(boolean condition, String passMsg, String failMsg) {
         if (condition) {
@@ -287,13 +285,65 @@ public class ActionDriver {
         return visible;
     }
 
-    public void captureStep(String label) {
+    /** Returns the screenshot path so callers can put it in a failure message, or "" on failure. */
+    public String captureStep(String label) {
         try {
             waitForUiStable();
-            ScreenshotUtil.captureCurrentTestStep(driver, label);
+            return ScreenshotUtil.captureCurrentTestStep(driver, label);
         } catch (Exception e) {
-            e.printStackTrace();
+            System.out.println("[WARN] Screenshot for step '" + label + "' failed: " + e.getMessage());
+            return "";
         }
+    }
+
+    /**
+     * Records the business step the run is on, so a later failure can say where it stopped
+     * instead of only reporting that a wait expired.
+     */
+    public void markStep(String step) {
+        if (step == null || step.isBlank()) return;
+        currentStep = step.trim();
+        System.out.println("[STEP] " + currentStep);
+    }
+
+    public String currentStep() {
+        return currentStep;
+    }
+
+    /**
+     * Builds the diagnostic line attached to a genuine client failure: step, URL, title, page
+     * state and screenshot path. Never throws, so it cannot mask the failure it is describing.
+     */
+    public String captureFailure(String reason) {
+        StringBuilder detail = new StringBuilder(reason == null ? "Unknown failure." : reason);
+
+        detail.append(" [step=").append(currentStep).append(']');
+        detail.append(" [url=").append(readSafely(() -> driver.getCurrentUrl())).append(']');
+        detail.append(" [title=").append(readSafely(() -> driver.getTitle())).append(']');
+        detail.append(" [readyState=")
+            .append(readSafely(() -> String.valueOf(
+                ((JavascriptExecutor) driver).executeScript("return document.readyState"))))
+            .append(']');
+
+        String screenshot = captureStep("Client failure at " + currentStep);
+        detail.append(" [screenshot=").append(screenshot.isBlank() ? "not captured" : screenshot).append(']');
+
+        System.out.println("[FAIL] " + detail);
+        return detail.toString();
+    }
+
+    private String readSafely(Supplier<String> reader) {
+        try {
+            String value = reader.get();
+            return value == null || value.isBlank() ? "<unavailable>" : cleanForLog(value);
+        } catch (Exception e) {
+            return "<unavailable: " + e.getClass().getSimpleName() + ">";
+        }
+    }
+
+    private String cleanForLog(String value) {
+        String cleaned = value.replaceAll("\\s+", " ").trim();
+        return cleaned.length() > 300 ? cleaned.substring(0, 297) + "..." : cleaned;
     }
 
     public void captureStep(String label, By focusLocator) {

@@ -12,7 +12,6 @@ import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.utilities.ConfigReader;
-import com.encorepay.utilities.DiagnosticWait;
 
 public class LoginPage extends BasePage {
 
@@ -39,11 +38,8 @@ public class LoginPage extends BasePage {
 
     private static final String SSO_HOST = "sso.sarvagram.com";
 
-    /** Labelled so a timeout names the sign-in controls instead of only the page class. */
-    private final DiagnosticWait signInWait;
-
-    /** Labelled so a post-submit timeout says the sign-in was rejected or the app never navigated. */
-    private final DiagnosticWait loginOutcomeWait;
+    private final WebDriverWait signInWait;
+    private final WebDriverWait loginOutcomeWait;
 
     @FindBy(xpath =
         "//input[@placeholder='Enter User Name']"
@@ -69,62 +65,70 @@ public class LoginPage extends BasePage {
             + "[contains(.,'Success') or contains(.,'success')]")
     private List<WebElement> successToasts;
 
+    /** The layout renders its nav only for a signed-in user, and it always holds menu-btn triggers. */
     @FindBy(xpath =
-        "//button[normalize-space()='Dashboard']"
+        "//nav[.//button[contains(@class,'menu-btn')]]"
+            + " | //button[normalize-space()='Dashboard']"
             + " | //button[normalize-space()='Accounts']"
             + " | //button[normalize-space()='Collections']"
-            + " | //nav"
             + " | //app-header")
     private List<WebElement> postLoginMarkers;
 
     public LoginPage(WebDriver driver) {
         super(driver);
-        this.signInWait = wait.describedAs(
-            "the sign-in form (username field and Log In button) or the SSO sign-in button");
-        this.loginOutcomeWait = wait.describedAs(
-            "a login outcome (success toast or post-login navigation, or a rejection message)");
+        this.signInWait = wait;
+        this.loginOutcomeWait = wait;
     }
 
     public LoginPage(WebDriver driver, ConfigReader config) {
         super(driver, config);
-        this.signInWait = wait.describedAs(
-            "the sign-in form (username field and Log In button) or the SSO sign-in button");
-        this.loginOutcomeWait = wait.describedAs(
-            "a login outcome (success toast or post-login navigation, or a rejection message)");
+        this.signInWait = wait;
+        this.loginOutcomeWait = wait;
     }
 
     public void open() {
         driver.get(config.getURL());
         awaitAppBootstrap();
-        waitForLoginPage();
-        action.recordVerification("Sign-in page opened successfully at " + driver.getCurrentUrl());
+        waitForLoginOrAuthenticatedPage();
+        action.recordVerification("Application screen opened successfully at " + driver.getCurrentUrl());
     }
 
     public void waitForLoginPage() {
+        waitForLoginOrAuthenticatedPage();
+        if (!isLoginPageVisible() && !isAuthenticatedAreaVisible()) {
+            throw new IllegalStateException("A usable sign-in or authenticated screen was not displayed.");
+        }
+    }
+
+    public void waitForLoginOrAuthenticatedPage() {
         try {
             signInWait.until(d ->
-                isSsoButtonVisible() || isNormalLoginVisible()
+                isSsoButtonVisible() || isNormalLoginVisible() || isAuthenticatedAreaVisible()
             );
         } catch (RuntimeException firstFailure) {
-            // A first load that renders nothing is usually a cold cache or a stalled bundle
-            // rather than a bad configuration, so it is retried once before being reported.
             System.out.println("[WARN] Sign-in page did not render on first load, reloading once.");
             driver.navigate().refresh();
             awaitAppBootstrap();
             signInWait.until(d ->
-                isSsoButtonVisible() || isNormalLoginVisible()
+                isSsoButtonVisible() || isNormalLoginVisible() || isAuthenticatedAreaVisible()
             );
         }
     }
 
     public void login(String user, String pass) {
+        if (isAuthenticatedAreaVisible()) {
+            action.recordVerification("Existing authenticated application UI was already visible; sign-in was not repeated.");
+            return;
+        }
         if (!isLoginPageVisible()) {
             open();
         }
 
         signInWait.until(d ->
-            isSsoButtonVisible() || isNormalLoginVisible()
+            isSsoButtonVisible() || isNormalLoginVisible() || isAuthenticatedAreaVisible()
         );
+
+        if (isAuthenticatedAreaVisible()) return;
 
         if (isSsoButtonVisible()) {
             System.out.println("SSO login detected dynamically.");
@@ -151,11 +155,16 @@ public class LoginPage extends BasePage {
     }
 
     public void ssoLogin(String employeeId, String password) {
-       
+        if (isAuthenticatedAreaVisible()) {
+            action.recordVerification("Existing SSO-authenticated application UI was already visible; sign-in was not repeated.");
+            return;
+        }
 
         if (!isLoginPageVisible()) {
             open();
         }
+
+        if (isAuthenticatedAreaVisible()) return;
 
         WebElement ssoButton = wait.until(ExpectedConditions.elementToBeClickable(SSO_BUTTON));
         ssoButton.click();
@@ -242,15 +251,7 @@ public class LoginPage extends BasePage {
     }
 
     private boolean isAuthenticatedAreaVisible() {
-        try {
-            String url = driver.getCurrentUrl().toLowerCase(Locale.ROOT);
-            if (url.contains("#/home") || url.contains("#/dashboard")) {
-                return true;
-            }
-        } catch (Exception ignored) {
-        }
-
-        return isAnyDisplayed(postLoginMarkers) && !isApplicationSignInPage();
+        return isAuthenticatedApplicationVisible() && !isApplicationSignInPage();
     }
 
     public void prepareBlankCredentialsState() {

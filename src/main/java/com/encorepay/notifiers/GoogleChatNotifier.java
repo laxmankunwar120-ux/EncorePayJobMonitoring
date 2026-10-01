@@ -59,6 +59,7 @@ public final class GoogleChatNotifier {
         String webhook = new ConfigReader().getGoogleChatWebhookUrl();
 
         if (webhook == null || webhook.isBlank()) {
+            // Not configured is a deliberate choice, not a failure, so nothing is raised.
             System.out.println("[WARN] Google Chat notification skipped.");
             return;
         }
@@ -78,13 +79,18 @@ public final class GoogleChatNotifier {
 
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 System.out.println("[INFO] Google Chat notification sent successfully.");
-            } else {
-                System.out.println("[WARN] Google Chat HTTP "
-                        + response.statusCode() + ": "
-                        + abbreviate(response.body(), 500));
+                return;
             }
+
+            // A rejected webhook means the report never reached the team, which is a real
+            // failure of this run rather than a detail to log and move past.
+            throw new IllegalStateException("Google Chat returned HTTP " + response.statusCode()
+                    + ": " + abbreviate(response.body(), 300));
         } catch (Exception e) {
-            System.out.println("[WARN] Google Chat notification failed: " + e.getMessage());
+            System.out.println("[FAIL] Google Chat notification failed: " + e.getMessage());
+            throw e instanceof RuntimeException runtime
+                ? runtime
+                : new IllegalStateException("Google Chat notification failed: " + e.getMessage(), e);
         }
     }
 
