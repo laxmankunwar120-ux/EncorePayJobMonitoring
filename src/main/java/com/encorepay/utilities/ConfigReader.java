@@ -158,14 +158,82 @@ public class ConfigReader {
 
     public List<ClientConfig> getClients() {
         List<String> urls = readList("CLIENT_URLS", "clientUrls", "client.urls");
-        if (!urls.isEmpty()) return buildClients(urls);
+        if (!urls.isEmpty()) {
+            List<ClientConfig> clients = buildClients(urls);
+            announceClientSource(clients.size(), urls.size());
+            warnAboutIgnoredIndexedClients(clients);
+            return clients;
+        }
 
         List<ClientConfig> indexedClients = readIndexedClients();
-        if (!indexedClients.isEmpty()) return indexedClients;
+        if (!indexedClients.isEmpty()) {
+            System.out.println("[CONFIG] Client source: CLIENT_N_URL secrets, " + indexedClients.size()
+                    + " client(s) configured.");
+            warnAboutMissingIndexedCredentials(indexedClients);
+            return indexedClients;
+        }
 
         String url = getURL();
         if (url.isBlank()) throw new IllegalStateException("No client URL configured. Set url, APP_URL, CLIENT_URLS, or CLIENT_1_URL.");
         return List.of(new ClientConfig(getClientName(), url, getUsername(), getPassword(), false));
+    }
+
+    /**
+     * CLIENT_URLS wins over CLIENT_N_URL, which is easy to set up wrongly because the ignored
+     * values produce no error. The count is stated so a run monitoring fewer clients than intended
+     * is visible in the log from the first line.
+     */
+    private void announceClientSource(int clientCount, int urlCount) {
+        System.out.println("[CONFIG] Client source: CLIENT_URLS, " + urlCount + " URL(s) -> " + clientCount
+                + " client(s) configured. CLIENT_N_* secrets are IGNORED while CLIENT_URLS is set.");
+    }
+
+    /** Reports each per-client URL that CLIENT_URLS has overridden, naming the client lost. */
+    private void warnAboutIgnoredIndexedClients(List<ClientConfig> fromUrls) {
+        List<String> consumed = fromUrls.stream()
+                .map(client -> normalizeUrl(client.getUrl()))
+                .toList();
+
+        for (int number = 1; number <= 9; number++) {
+            String url = System.getenv("CLIENT_" + number + "_URL");
+            if (url == null || url.isBlank()) continue;
+
+            if (consumed.contains(normalizeUrl(url))) continue;
+
+            String name = firstNonBlank(System.getenv("CLIENT_" + number + "_NAME"), "client." + number);
+            System.out.println("[WARN] CLIENT_" + number + "_URL (" + name + ") is set but is NOT in"
+                    + " CLIENT_URLS, so that client will NOT be monitored. Add its URL to CLIENT_URLS"
+                    + " or unset CLIENT_URLS to use the per-client values.");
+        }
+    }
+
+    /** Reports a configured client that has no credentials, which would fail at sign-in. */
+    private void warnAboutMissingIndexedCredentials(List<ClientConfig> clients) {
+        for (ClientConfig client : clients) {
+            if (isBlank(client.getUsername()) || isBlank(client.getPassword())) {
+                System.out.println("[WARN] Client '" + safeName(client) + "' (" + client.getUrl()
+                        + ") has no username or password configured and will not be able to sign in.");
+            }
+        }
+    }
+
+    private static String normalizeUrl(String url) {
+        if (url == null) return "";
+        String trimmed = url.trim();
+        int schemeEnd = trimmed.indexOf("://");
+        if (schemeEnd >= 0) trimmed = trimmed.substring(schemeEnd + 3);
+        int pathStart = trimmed.indexOf('/');
+        if (pathStart >= 0) trimmed = trimmed.substring(0, pathStart);
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static String safeName(ClientConfig client) {
+        String name = client.getName();
+        return name == null || name.isBlank() ? "(unnamed)" : name;
     }
 
     private List<ClientConfig> buildClients(List<String> urls) {

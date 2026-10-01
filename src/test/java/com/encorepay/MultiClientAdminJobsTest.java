@@ -4,8 +4,10 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -49,6 +51,11 @@ public class MultiClientAdminJobsTest {
         List<String> clientFailures = new ArrayList<>();
 
         System.out.println("[MULTI-CLIENT] Total configured clients: " + clients.size());
+        for (ClientConfig client : clients) {
+            System.out.println("[CLIENT CONFIGURED] " + safeClientName(client) + " -> " + client.getUrl()
+                    + " | sso=" + client.isSso()
+                    + " | credentials=" + (hasCredentials(client) ? "present" : "MISSING"));
+        }
 
         for (ClientConfig client : clients) {
             String clientName = safeClientName(client);
@@ -67,6 +74,30 @@ public class MultiClientAdminJobsTest {
 
         if (allStatuses.isEmpty() && clientFailures.isEmpty()) {
             clientFailures.add("MULTI-CLIENT RUN :: No monitoring result was produced.");
+        }
+
+        // A client can be dropped from the run entirely by configuration rather than by failing,
+        // so the number that produced results is compared with the number that was configured.
+        Set<String> monitoredClients = new LinkedHashSet<>();
+        for (JobStatus status : allStatuses) {
+            if (status.getClientName() != null && !status.getClientName().isBlank()) {
+                monitoredClients.add(status.getClientName());
+            }
+        }
+
+        List<String> neverMonitored = new ArrayList<>();
+        for (ClientConfig client : clients) {
+            if (!monitoredClients.contains(safeClientName(client))) {
+                neverMonitored.add(safeClientName(client));
+            }
+        }
+
+        if (!neverMonitored.isEmpty()) {
+            String message = "These configured clients produced no monitoring result: "
+                    + String.join(", ", neverMonitored)
+                    + ". Check their CLIENT_N_URL secret, or CLIENT_URLS if that is the source in use.";
+            clientFailures.add("CLIENT COVERAGE :: " + message);
+            System.out.println("[CLIENT COVERAGE] " + message);
         }
 
         String htmlReportPath = null;
@@ -315,6 +346,11 @@ public class MultiClientAdminJobsTest {
             .filter(x -> x != null && name.equalsIgnoreCase(x.getJobName()))
             .findFirst()
             .orElse(null);
+    }
+
+    private boolean hasCredentials(ClientConfig client) {
+        return client.getUsername() != null && !client.getUsername().isBlank()
+                && client.getPassword() != null && !client.getPassword().isBlank();
     }
 
     private String safeClientName(ClientConfig client) {
