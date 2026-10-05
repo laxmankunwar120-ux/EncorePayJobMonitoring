@@ -7,8 +7,10 @@ import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
 
 import com.encorepay.models.ClientConfig;
@@ -158,19 +160,22 @@ public class ConfigReader {
 
     public List<ClientConfig> getClients() {
         List<String> urls = readList("CLIENT_URLS", "clientUrls", "client.urls");
-        if (!urls.isEmpty()) {
-            List<ClientConfig> clients = buildClients(urls);
-            announceClientSource(clients.size(), urls.size());
-            warnAboutIgnoredIndexedClients(clients);
-            return clients;
-        }
-
         List<ClientConfig> indexedClients = readIndexedClients();
-        if (!indexedClients.isEmpty()) {
-            System.out.println("[CONFIG] Client source: CLIENT_N_URL secrets, " + indexedClients.size()
+
+        if (!urls.isEmpty() || !indexedClients.isEmpty()) {
+            List<ClientConfig> mergedClients = mergeClients(buildClients(urls), indexedClients);
+            if (!urls.isEmpty() && !indexedClients.isEmpty()) {
+                System.out.println("[CONFIG] Client source: merged CLIENT_URLS + CLIENT_N_URL values, "
+                    + mergedClients.size() + " client(s) configured.");
+            } else if (!urls.isEmpty()) {
+                System.out.println("[CONFIG] Client source: CLIENT_URLS, " + mergedClients.size()
                     + " client(s) configured.");
-            warnAboutMissingIndexedCredentials(indexedClients);
-            return indexedClients;
+            } else {
+                System.out.println("[CONFIG] Client source: CLIENT_N_URL secrets, " + mergedClients.size()
+                    + " client(s) configured.");
+            }
+            warnAboutMissingIndexedCredentials(mergedClients);
+            return mergedClients;
         }
 
         String url = getURL();
@@ -179,32 +184,26 @@ public class ConfigReader {
     }
 
     /**
-     * CLIENT_URLS wins over CLIENT_N_URL, which is easy to set up wrongly because the ignored
-     * values produce no error. The count is stated so a run monitoring fewer clients than intended
-     * is visible in the log from the first line.
+     * CLIENT_URLS and CLIENT_N_URL are merged so a partially filled CLIENT_URLS list does not silently drop
+     * a configured client. A repeated URL is deduplicated by host and path, and the first source wins.
      */
-    private void announceClientSource(int clientCount, int urlCount) {
-        System.out.println("[CONFIG] Client source: CLIENT_URLS, " + urlCount + " URL(s) -> " + clientCount
-                + " client(s) configured. CLIENT_N_* secrets are IGNORED while CLIENT_URLS is set.");
-    }
+    private List<ClientConfig> mergeClients(List<ClientConfig> fromUrls, List<ClientConfig> indexedClients) {
+        Map<String, ClientConfig> merged = new LinkedHashMap<>();
 
-    /** Reports each per-client URL that CLIENT_URLS has overridden, naming the client lost. */
-    private void warnAboutIgnoredIndexedClients(List<ClientConfig> fromUrls) {
-        List<String> consumed = fromUrls.stream()
-                .map(client -> normalizeUrl(client.getUrl()))
-                .toList();
-
-        for (int number = 1; number <= 9; number++) {
-            String url = System.getenv("CLIENT_" + number + "_URL");
-            if (url == null || url.isBlank()) continue;
-
-            if (consumed.contains(normalizeUrl(url))) continue;
-
-            String name = firstNonBlank(System.getenv("CLIENT_" + number + "_NAME"), "client." + number);
-            System.out.println("[WARN] CLIENT_" + number + "_URL (" + name + ") is set but is NOT in"
-                    + " CLIENT_URLS, so that client will NOT be monitored. Add its URL to CLIENT_URLS"
-                    + " or unset CLIENT_URLS to use the per-client values.");
+        for (ClientConfig client : fromUrls) {
+            if (client == null || client.getUrl() == null || client.getUrl().isBlank()) continue;
+            merged.putIfAbsent(normalizeUrl(client.getUrl()), client);
         }
+
+        for (ClientConfig client : indexedClients) {
+            if (client == null || client.getUrl() == null || client.getUrl().isBlank()) continue;
+            String key = normalizeUrl(client.getUrl());
+            if (!merged.containsKey(key)) {
+                merged.put(key, client);
+            }
+        }
+
+        return new ArrayList<>(merged.values());
     }
 
     /** Reports a configured client that has no credentials, which would fail at sign-in. */
