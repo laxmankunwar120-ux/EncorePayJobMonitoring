@@ -89,7 +89,7 @@ public final class WebDriverFactory {
     public static void configure(WebDriver driver, ConfigReader config) {
         driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(config.getImplicitWait()));
         driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(config.getPageLoadTimeout()));
-        driver.manage().window().maximize();
+        driver.manage().window().setSize(new org.openqa.selenium.Dimension(1920, 1080));
 
 if (driver instanceof ChromiumDriver chromiumDriver) {
             try {
