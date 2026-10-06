@@ -72,6 +72,7 @@ public final class GoogleChatNotifier {
             return;
         }
 
+        String message = buildMessage(statuses, clientFailures, configuredClients, htmlReportPath);
         GoogleChatApiNotifier.send(webhook, htmlReportPath, message);
     }
 
