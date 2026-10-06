@@ -154,7 +154,7 @@ final class GoogleChatApiNotifier {
 
     private static byte[] buildMultipartBody(String boundary, Path report) throws IOException {
         String fileName = report.getFileName().toString();
-        String metadata = "{\\"filename\\":\\"" + escapeJson(fileName) + "\\"}";
+        String metadata = "{\"filename\":\"" + escapeJson(fileName) + "\"}";
         byte[] fileBytes = Files.readAllBytes(report);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         write(out, "--" + boundary + "\\r\\n");
