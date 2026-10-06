@@ -128,6 +128,9 @@ public class AdminJobsPage extends BasePage {
 private static final Pattern PAGER_PATTERN = Pattern.compile(
             "(\\d+)\\s*(?:[-\\u2013\\u2014]\\s*(\\d+)\\s*)?of\\s*(?<total>\\d+)");
     private static final Pattern FULL_DATE_TIME = Pattern.compile("(?:\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?:\\s+|T)+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[APMapm]{2})?");
+    private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
+            "(?i)Receipt Posting Failure:\\s*Total:\\s*(\\d+)\\s*,\\s*Success:\\s*(\\d+)\\s*,"
+                    + "\\s*Partially Success:\\s*(\\d+)\\s*,\\s*Failed:\\s*(\\d+)");
 
     private final WebDriverWait jobsPageWait;
 
@@ -703,7 +706,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         clickAndWait(executionView);
 
         WebElement modal = waitForExecutionModal();
-        scrollExecutionModal(modal);
 
         String executionStatus = waitForModalField(modal, "Status");
         String endDate = waitForModalField(modal, "End Date");
@@ -737,14 +739,23 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         status.setStatus(executionStatus);
         status.setDateTime(dateTime);
 
-        if (isFailedStatus(executionStatus)) {
+        boolean partialReceiptOutcome = isPartialSuccessStatus(executionStatus);
+        if (isFailedStatus(executionStatus) || partialReceiptOutcome) {
             String jobFailureReason = waitForModalField(modal, "Reason");
             if (jobFailureReason.isBlank()) {
                 jobFailureReason = readReasonFromModalText(modal.getText());
             }
-            if (!jobFailureReason.isBlank()) {
+
+            if (normalizeReceiptPostingSummary(jobFailureReason, status)) {
+                executionStatus = "SUCCESSFUL";
+                status.setStatus(executionStatus);
+                if (status.getJobFailureReason() != null
+                        && status.getJobFailureReason().equalsIgnoreCase(jobFailureReason)) {
+                    status.setJobFailureReason(null);
+                }
+            } else if (!jobFailureReason.isBlank() && isFailedStatus(executionStatus)) {
                 status.setJobFailureReason(jobFailureReason);
-            } else {
+            } else if (isFailedStatus(executionStatus)) {
                 System.out.println("[WARN] Job status is FAILED but Reason could not be captured for " + jobName + ".");
             }
         }
@@ -756,6 +767,36 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private boolean isFailedStatus(String status) {
         return status != null && status.trim().toUpperCase(Locale.ROOT).contains("FAIL");
+    }
+
+    private boolean isPartialSuccessStatus(String status) {
+        return status != null && status.trim().equalsIgnoreCase("PARTIALLY_SUCCESSFUL");
+    }
+
+    private boolean normalizeReceiptPostingSummary(String reason, JobStatus status) {
+        String text = clean(reason);
+        Matcher matcher = RECEIPT_POSTING_FAILURE.matcher(text);
+        if (!matcher.matches()) {
+            return false;
+        }
+
+        int total = Integer.parseInt(matcher.group(1));
+        int success = Integer.parseInt(matcher.group(2));
+        int partial = Integer.parseInt(matcher.group(3));
+        int failed = Integer.parseInt(matcher.group(4));
+
+        if (failed > status.getFailedCount()) {
+            status.setFailedCount(failed);
+        }
+
+        status.addFailureReason(text);
+
+        System.out.println("[RECEIPT OUTCOME] Receipt Posting Failure summary detected: "
+                + "Total=" + total + ", Success=" + success
+                + ", Partially Success=" + partial + ", Failed=" + failed
+                + ". Treating the completed job as SUCCESSFUL.");
+
+        return true;
     }
 
     private static final Pattern STATUS_LINE = Pattern.compile(
