@@ -107,8 +107,8 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Install Maven
-        run: sudo apt-get update && sudo apt-get install -y maven
+      - name: Install Maven and Xvfb
+        run: sudo apt-get update && sudo apt-get install -y maven xvfb
 
       - name: Verify configuration
         run: |
@@ -138,12 +138,32 @@ jobs:
             exit 1
           fi
 
+      - name: Check protected client connectivity
+        if: always()
+        run: |
+          set +e
+          for v in CLIENT_1_URL CLIENT_2_URL CLIENT_3_URL CLIENT_4_URL CLIENT_5_URL CLIENT_6_URL CLIENT_7_URL CLIENT_8_URL CLIENT_9_URL; do
+            url="${!v}"
+            if [ -z "$url" ]; then
+              continue
+            fi
+            if echo "$url" | grep -qi "achfpl.com"; then
+              echo "Checking protected application endpoint for $v"
+              status=$(curl -sS -L --max-time 30 -o /tmp/client-response.html -w "%{http_code}" "$url")
+              echo "$v returned HTTP $status"
+              if [ "$status" = "403" ]; then
+                echo "::warning::$v is returning HTTP 403 from the GitHub runner before Selenium authentication."
+                sed -n '1,20p' /tmp/client-response.html || true
+              fi
+            fi
+          done
+
       - name: Run job monitoring
         run: |
-          mvn -B clean test \
+          xvfb-run -a mvn -B clean test \
             -DrunMode=multiple \
             -Dbrowser=chrome \
-            -Dheadless=true \
+            -Dheadless=false \
             -DexplicitWait=45 \
             -DbootTimeout=150 \
             -DbusinessZone=Asia/Kolkata
