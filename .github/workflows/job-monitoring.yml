@@ -194,6 +194,45 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Send Google Chat run report
+        if: always()
+        env:
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$GOOGLE_CHAT_WEBHOOK_URL" ]; then
+            echo "::error::GOOGLE_CHAT_WEBHOOK_URL is not configured."
+            exit 1
+          fi
+
+          status="COMPLETED"
+          if [ "${{ job.status }}" != "success" ]; then
+            status="FAILED"
+          fi
+
+          payload=$(cat <<EOF
+          {
+            "text": "ENCOREPAY JOB MONITORING\nStatus: $status\nRun: $RUN_URL\nThe detailed HTML report and screenshots are available in the GitHub Actions run artifacts."
+          }
+          EOF
+          )
+
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json; charset=UTF-8" \
+            --data "$payload" \
+            "$GOOGLE_CHAT_WEBHOOK_URL")
+
+          echo "$response"
+          http_status=$(printf '%s' "$response" | sed -n 's/^HTTP_STATUS://p' | tail -1)
+
+          if [ "$http_status" != "200" ]; then
+            echo "::error::Google Chat webhook delivery failed with HTTP $http_status."
+            exit 1
+          fi
+
+          echo "::notice::Google Chat webhook accepted the report notification."
+
       - name: Archive screenshots
         if: failure()
         uses: actions/upload-artifact@v4
