@@ -127,7 +127,7 @@ public final class WebDriverFactory {
                     + "    };"
                     + "    navigator.geolocation.watchPosition = function(success, error, options) {"
                     + "      if (typeof success === 'function') {"
-                    + "        success({ coords: { latitude: 19.0760, longitude: 19.0760, accuracy: 100, altitude: null, altitudeAccuracy: null, heading: null, speed: null }, timestamp: Date.now() });"
+                    + "        success({ coords: { latitude: 19.0760, longitude: 72.8777, accuracy: 100, altitude: null, altitudeAccuracy: null, heading: null, speed: null }, timestamp: Date.now() });"
                     + "      }"
                     + "      return 1;"
                     + "    };"
