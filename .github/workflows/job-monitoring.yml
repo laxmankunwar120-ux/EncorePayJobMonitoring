@@ -2,8 +2,8 @@ name: EncorePay Job Monitoring
 
 on:
   schedule:
-    # 7:00 AM IST
-    - cron: "0 18 * * *"
+    # TEST: 8:05 PM IST (14:35 UTC) today
+    - cron: "35 14 * * *"
       timezone: "Asia/Kolkata"
 
     # 10:00 PM IST
@@ -24,61 +24,52 @@ jobs:
 
     env:
       CLIENT_URLS: ${{ secrets.CLIENT_URLS }}
-
       CLIENT_1_URL: ${{ secrets.CLIENT_1_URL }}
       CLIENT_1_NAME: ${{ secrets.CLIENT_1_NAME }}
       CLIENT_1_USERNAME: ${{ secrets.CLIENT_1_USERNAME }}
       CLIENT_1_PASSWORD: ${{ secrets.CLIENT_1_PASSWORD }}
       CLIENT_1_SSO: ${{ secrets.CLIENT_1_SSO }}
-
       CLIENT_2_URL: ${{ secrets.CLIENT_2_URL }}
       CLIENT_2_NAME: ${{ secrets.CLIENT_2_NAME }}
       CLIENT_2_USERNAME: ${{ secrets.CLIENT_2_USERNAME }}
       CLIENT_2_PASSWORD: ${{ secrets.CLIENT_2_PASSWORD }}
       CLIENT_2_SSO: ${{ secrets.CLIENT_2_SSO }}
-
       CLIENT_3_URL: ${{ secrets.CLIENT_3_URL }}
       CLIENT_3_NAME: ${{ secrets.CLIENT_3_NAME }}
       CLIENT_3_USERNAME: ${{ secrets.CLIENT_3_USERNAME }}
       CLIENT_3_PASSWORD: ${{ secrets.CLIENT_3_PASSWORD }}
       CLIENT_3_SSO: ${{ secrets.CLIENT_3_SSO }}
-
       CLIENT_4_URL: ${{ secrets.CLIENT_4_URL }}
       CLIENT_4_NAME: ${{ secrets.CLIENT_4_NAME }}
       CLIENT_4_USERNAME: ${{ secrets.CLIENT_4_USERNAME }}
       CLIENT_4_PASSWORD: ${{ secrets.CLIENT_4_PASSWORD }}
       CLIENT_4_SSO: ${{ secrets.CLIENT_4_SSO }}
-
       CLIENT_5_URL: ${{ secrets.CLIENT_5_URL }}
       CLIENT_5_NAME: ${{ secrets.CLIENT_5_NAME }}
       CLIENT_5_USERNAME: ${{ secrets.CLIENT_5_USERNAME }}
       CLIENT_5_PASSWORD: ${{ secrets.CLIENT_5_PASSWORD }}
       CLIENT_5_SSO: ${{ secrets.CLIENT_5_SSO }}
-
       CLIENT_6_URL: ${{ secrets.CLIENT_6_URL }}
       CLIENT_6_NAME: ${{ secrets.CLIENT_6_NAME }}
       CLIENT_6_USERNAME: ${{ secrets.CLIENT_6_USERNAME }}
       CLIENT_6_PASSWORD: ${{ secrets.CLIENT_6_PASSWORD }}
       CLIENT_6_SSO: ${{ secrets.CLIENT_6_SSO }}
-
       CLIENT_7_URL: ${{ secrets.CLIENT_7_URL }}
       CLIENT_7_NAME: ${{ secrets.CLIENT_7_NAME }}
       CLIENT_7_USERNAME: ${{ secrets.CLIENT_7_USERNAME }}
       CLIENT_7_PASSWORD: ${{ secrets.CLIENT_7_PASSWORD }}
       CLIENT_7_SSO: ${{ secrets.CLIENT_7_SSO }}
-
+      CLIENT_7_SSO: ${{ secrets.CLIENT_7_SSO }}
       CLIENT_8_URL: ${{ secrets.CLIENT_8_URL }}
       CLIENT_8_NAME: ${{ secrets.CLIENT_8_NAME }}
       CLIENT_8_USERNAME: ${{ secrets.CLIENT_8_USERNAME }}
       CLIENT_8_PASSWORD: ${{ secrets.CLIENT_8_PASSWORD }}
       CLIENT_8_SSO: ${{ secrets.CLIENT_8_SSO }}
-
       CLIENT_9_URL: ${{ secrets.CLIENT_9_URL }}
       CLIENT_9_NAME: ${{ secrets.CLIENT_9_NAME }}
       CLIENT_9_USERNAME: ${{ secrets.CLIENT_9_USERNAME }}
       CLIENT_9_PASSWORD: ${{ secrets.CLIENT_9_PASSWORD }}
       CLIENT_9_SSO: ${{ secrets.CLIENT_9_SSO }}
-
       GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
       GOOGLE_CHAT_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CHAT_OAUTH_CLIENT_ID }}
       GOOGLE_CHAT_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CHAT_OAUTH_CLIENT_SECRET }}
@@ -113,9 +104,7 @@ jobs:
       - name: Verify configuration
         run: |
           found=0
-
-          for v in CLIENT_URLS CLIENT_1_URL CLIENT_2_URL CLIENT_3_URL CLIENT_4_URL \
-                   CLIENT_5_URL CLIENT_6_URL CLIENT_7_URL CLIENT_8_URL CLIENT_9_URL; do
+          for v in CLIENT_URLS CLIENT_1_URL CLIENT_2_URL CLIENT_3_URL CLIENT_4_URL CLIENT_5_URL CLIENT_6_URL CLIENT_7_URL CLIENT_8_URL CLIENT_9_URL; do
             if [ -n "${!v}" ]; then
               echo "::notice::$v is set"
               found=$((found + 1))
@@ -123,16 +112,12 @@ jobs:
               echo "$v is NOT set"
             fi
           done
-
           for n in 1 2 3 4 5 6 7 8 9; do
             for f in NAME USERNAME PASSWORD; do
               v="CLIENT_${n}_${f}"
-              if [ -n "${!v}" ]; then
-                echo "::notice::$v is set"
-              fi
+              if [ -n "${!v}" ]; then echo "::notice::$v is set"; fi
             done
           done
-
           if [ "$found" -eq 0 ]; then
             echo "::error::No client URL reached the runner. Set CLIENT_URLS or at least one CLIENT_N_URL repository secret."
             exit 1
@@ -144,9 +129,7 @@ jobs:
           set +e
           for v in CLIENT_1_URL CLIENT_2_URL CLIENT_3_URL CLIENT_4_URL CLIENT_5_URL CLIENT_6_URL CLIENT_7_URL CLIENT_8_URL CLIENT_9_URL; do
             url="${!v}"
-            if [ -z "$url" ]; then
-              continue
-            fi
+            if [ -z "$url" ]; then continue; fi
             if echo "$url" | grep -qi "achfpl.com"; then
               echo "Checking protected application endpoint for $v"
               status=$(curl -sS -L --max-time 30 -o /tmp/client-response.html -w "%{http_code}" "$url")
@@ -177,10 +160,8 @@ jobs:
           else
             echo "test-output/report does not exist."
           fi
-
           count=$(find test-output/report -maxdepth 1 -name '*.html' 2>/dev/null | wc -l)
           echo "HTML report files found: $count"
-
           if [ "$count" -eq 0 ]; then
             echo "::error::No HTML report was generated. Search the log above for [REPORT FAILED] or [CLIENT FAILED]."
           fi
@@ -214,25 +195,16 @@ jobs:
           REPORT_NAME: job-monitoring-report-${{ github.run_number }}
         run: |
           set -euo pipefail
-
           if [ -z "$GOOGLE_CHAT_WEBHOOK_URL" ]; then
             echo "::error::GOOGLE_CHAT_WEBHOOK_URL is not configured."
             exit 1
           fi
-
           status="COMPLETED"
-          if [ "${{ job.status }}" != "success" ]; then
-            status="FAILED"
-          fi
-
+          if [ "${{ job.status }}" != "success" ]; then status="FAILED"; fi
           report_file=""
           report_count=$(find test-output/report -maxdepth 1 -type f -name '*.html' 2>/dev/null | wc -l | tr -d ' ')
-          if [ "$report_count" -gt 0 ]; then
-            report_file=$(find test-output/report -maxdepth 1 -type f -name '*.html' | sort | head -1)
-          fi
-
+          if [ "$report_count" -gt 0 ]; then report_file=$(find test-output/report -maxdepth 1 -type f -name '*.html' | sort | head -1); fi
           screenshot_count=$(find screenshots -type f 2>/dev/null | wc -l | tr -d ' ')
-
           STATUS="$status" RUN_URL="$RUN_URL" REPORT_NAME="$REPORT_NAME" REPORT_COUNT="$report_count" SCREENSHOT_COUNT="$screenshot_count" REPORT_FILE="$report_file" python3 - <<'PY'
           import json
           import os
@@ -251,14 +223,11 @@ jobs:
           report_count = os.environ["REPORT_COUNT"]
           screenshot_count = os.environ["SCREENSHOT_COUNT"]
           report_file = os.environ.get("REPORT_FILE", "")
-
-          message = (
-              "ENCOREPAY JOB MONITORING REPORT\n"
-              f"Status: {status}\n"
-              f"HTML reports generated: {report_count}\n"
-              f"Screenshots archived: {screenshot_count}\n"
-              f"GitHub report & artifacts: {run_url}"
-          )
+          message = ("ENCOREPAY JOB MONITORING REPORT\n"
+                     f"Status: {status}\n"
+                     f"HTML reports generated: {report_count}\n"
+                     f"Screenshots archived: {screenshot_count}\n"
+                     f"GitHub report & artifacts: {run_url}")
 
           def post(url, data, headers):
               req = urllib.request.Request(url, data=data, headers=headers, method="POST")
@@ -267,81 +236,51 @@ jobs:
 
           if client_id and client_secret and refresh_token and report_file:
               token_body = urllib.parse.urlencode({
-                  "client_id": client_id,
-                  "client_secret": client_secret,
-                  "refresh_token": refresh_token,
-                  "grant_type": "refresh_token",
+                  "client_id": client_id, "client_secret": client_secret,
+                  "refresh_token": refresh_token, "grant_type": "refresh_token",
               }).encode()
               token_status, token_response = post(
-                  "https://oauth2.googleapis.com/token",
-                  token_body,
+                  "https://oauth2.googleapis.com/token", token_body,
                   {"Content-Type": "application/x-www-form-urlencoded"},
               )
               if token_status < 200 or token_status >= 300:
                   raise RuntimeError(f"Google OAuth token refresh failed: HTTP {token_status}: {token_response[:500]}")
               access_token = json.loads(token_response)["access_token"]
-
               match = re.search(r"/v1/spaces/([^/]+)/messages(?:$|[?])", webhook)
               if not match:
                   raise RuntimeError("Unable to determine Google Chat space from GOOGLE_CHAT_WEBHOOK_URL")
               space = "spaces/" + match.group(1)
-
               filename = os.path.basename(report_file)
               boundary = "EncorePayBoundary" + uuid.uuid4().hex
               with open(report_file, "rb") as handle:
                   file_bytes = handle.read()
-
               metadata = json.dumps({"filename": filename}).encode()
-              body = (
-                  b"--" + boundary.encode() + b"\r\n"
-                  b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
-                  + metadata + b"\r\n"
-                  b"--" + boundary.encode() + b"\r\n"
-                  b"Content-Type: text/html; charset=UTF-8\r\n\r\n"
-                  + file_bytes + b"\r\n"
-                  b"--" + boundary.encode() + b"--\r\n"
-              )
-
-              upload_url = (
-                  f"https://chat.googleapis.com/upload/v1/{space}/attachments:upload"
-                  "?uploadType=multipart"
-              )
-              upload_status, upload_response = post(
-                  upload_url,
-                  body,
-                  {
-                      "Authorization": f"Bearer {access_token}",
-                      "Content-Type": f"multipart/related; boundary={boundary}",
-                  },
-              )
+              body = (b"--" + boundary.encode() + b"\r\n"
+                      b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+                      + metadata + b"\r\n"
+                      b"--" + boundary.encode() + b"\r\n"
+                      b"Content-Type: text/html; charset=UTF-8\r\n\r\n"
+                      + file_bytes + b"\r\n"
+                      b"--" + boundary.encode() + b"--\r\n")
+              upload_url = f"https://chat.googleapis.com/upload/v1/{space}/attachments:upload?uploadType=multipart"
+              upload_status, upload_response = post(upload_url, body, {
+                  "Authorization": f"Bearer {access_token}",
+                  "Content-Type": f"multipart/related; boundary={boundary}",
+              })
               if upload_status < 200 or upload_status >= 300:
                   raise RuntimeError(f"Google Chat attachment upload failed: HTTP {upload_status}: {upload_response[:1000]}")
-
               attachment = json.loads(upload_response)
-              payload = json.dumps({
-                  "text": message,
-                  "attachment": [attachment],
-              }).encode()
-
-              send_status, send_response = post(
-                  f"https://chat.googleapis.com/v1/{space}/messages",
-                  payload,
-                  {
-                      "Authorization": f"Bearer {access_token}",
-                      "Content-Type": "application/json; charset=UTF-8",
-                  },
-              )
+              payload = json.dumps({"text": message, "attachment": [attachment]}).encode()
+              send_status, send_response = post(f"https://chat.googleapis.com/v1/{space}/messages", payload, {
+                  "Authorization": f"Bearer {access_token}",
+                  "Content-Type": "application/json; charset=UTF-8",
+              })
               if send_status < 200 or send_status >= 300:
                   raise RuntimeError(f"Google Chat API message failed: HTTP {send_status}: {send_response[:1000]}")
-
               print(f"[INFO] Google Chat report attachment sent directly: {filename}")
           else:
               payload = json.dumps({"text": message + f"\nArtifact: {report_name}"}).encode()
-              send_status, send_response = post(
-                  webhook,
-                  payload,
-                  {"Content-Type": "application/json; charset=UTF-8"},
-              )
+              send_status, send_response = post(webhook, payload, {"Content-Type": "application/json; charset=UTF-8"})
               if send_status < 200 or send_status >= 300:
                   raise RuntimeError(f"Google Chat webhook delivery failed: HTTP {send_status}: {send_response[:1000]}")
               print("[INFO] Google Chat webhook fallback notification sent.")
