@@ -44,3 +44,4 @@ public final class ClientConfig {
         return name.isBlank() ? url : name;
     }
 }
+

@@ -70,7 +70,6 @@ public final class ScreenshotUtil {
                 throw new IllegalStateException("Unable to create " + SCREENSHOT_DIR);
             }
 
-            // Short wait so error pages do not stall the suite, but the capture still happens.
             waitForPageReady(driver, 3);
 
             File source = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
@@ -96,7 +95,7 @@ public final class ScreenshotUtil {
                         try {
                             file.delete();
                         } catch (Exception ignored) {
-                            // A locked file is reported by the next run's cleanup.
+
                         }
                     }
                 }
@@ -157,7 +156,7 @@ public final class ScreenshotUtil {
             new WebDriverWait(driver, Duration.ofSeconds(timeoutSeconds)).until(d ->
                     "complete".equals(((JavascriptExecutor) d).executeScript("return document.readyState")));
         } catch (Exception ignored) {
-            // Error pages and broken scripts still deserve a screenshot.
+
         }
     }
 
@@ -185,3 +184,4 @@ public final class ScreenshotUtil {
         return sanitized.length() > 80 ? sanitized.substring(0, 80).trim() : sanitized;
     }
 }
+

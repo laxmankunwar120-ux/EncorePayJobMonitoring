@@ -79,8 +79,6 @@ public class MultiClientAdminJobsTest {
             clientFailures.add("MULTI-CLIENT RUN :: No monitoring result was produced.");
         }
 
-        // A client can be dropped from the run entirely by configuration rather than by failing,
-        // so the number that produced results is compared with the number that was configured.
         Set<String> monitoredClients = new LinkedHashSet<>();
         for (JobStatus status : allStatuses) {
             if (status.getClientName() != null && !status.getClientName().isBlank()) {
@@ -123,8 +121,6 @@ public class MultiClientAdminJobsTest {
             System.out.println("[REPORT FAILED] " + safeMessage(e));
         }
 
-        // Notifications are attempted independently of report generation so a report bug
-        // cannot silence a production run that still has results worth sending.
         if (htmlReportPath != null) {
             final String reportPath = htmlReportPath;
             List<String> configuredClientNames = clients.stream()
@@ -221,8 +217,7 @@ public class MultiClientAdminJobsTest {
             statuses = adminJobsPage.monitorAllConfiguredJobs();
             validateMonitoringData(statuses);
         } catch (Exception e) {
-            // A client that cannot be reached, authenticated, or inspected is N/A.
-            // FAILED is reserved for a real job execution whose application status is FAILED.
+
             String reason = action == null
                 ? safeMessage(e)
                 : action.captureFailure(safeMessage(e));
@@ -318,7 +313,7 @@ public class MultiClientAdminJobsTest {
 
         JobStatus post = findRequired(statuses, "Post Receipts Job");
         if (post.getFailedCount() > 0) {
-            // Partial capture is acceptable as long as the gap is explained on the row.
+
             boolean reasonsCaptured = !post.getFailureReasons().isEmpty();
             boolean gapExplained = post.getJobFailureReason() != null
                     && post.getJobFailureReason().contains("Receipt capture incomplete");
@@ -389,3 +384,4 @@ public class MultiClientAdminJobsTest {
         }
     }
 }
+

@@ -112,8 +112,7 @@ public final class EmailNotifier {
             Transport.send(message);
             System.out.println("[INFO] Email notification sent to " + to + ".");
         } catch (Exception e) {
-            // The report never reached the recipients, so this run did not do its job. It is
-            // raised for the run to record rather than logged and forgotten.
+
             System.out.println("[FAIL] Email notification failed (" + e.getClass().getSimpleName() + "): " + e.getMessage());
             throw e instanceof RuntimeException runtime
                 ? runtime
@@ -302,3 +301,4 @@ public final class EmailNotifier {
         return true;
     }
 }
+

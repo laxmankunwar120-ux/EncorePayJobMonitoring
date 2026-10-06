@@ -301,7 +301,7 @@ public class ActionDriver {
         try {
             ((JavascriptExecutor) driver)
                 .executeScript("arguments[0].scrollIntoView({block:'center', behavior:'smooth'});", element);
-            // Brief pause to let smooth scroll complete
+
             Thread.sleep(300);
         } catch (Exception ignored) {
         }
@@ -472,7 +472,7 @@ public class ActionDriver {
             }
             
             try {
-                // Ensure no standard overlay is actively blocking globally
+
                 new WebDriverWait(driver, Duration.ofSeconds(3))
                     .until(ExpectedConditions.invisibilityOfElementLocated(By.cssSelector(".cdk-overlay-backdrop:not(.cdk-overlay-transparent-backdrop), .ngx-spinner, .loader")));
             } catch (Exception ignored) {}
@@ -530,3 +530,4 @@ public class ActionDriver {
             .trim();
     }
 }
+

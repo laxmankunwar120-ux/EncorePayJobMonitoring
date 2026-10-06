@@ -35,8 +35,6 @@ public class ConfigReader {
         Properties p = new Properties();
         File file = new File(CONFIG_PATH);
 
-        // The file is git-ignored so credentials stay out of source control. CI supplies
-        // everything through environment variables, so its absence is expected.
         if (!file.exists()) {
             return p;
         }
@@ -363,7 +361,7 @@ public class ConfigReader {
             String normalized = url.matches("(?i)^https?://.*") ? url : "https://" + url;
             String host = URI.create(normalized).getHost();
             if (host == null || host.isBlank()) return "";
-            // Remove common prefixes and use full remaining host for uniqueness
+
             String cleanHost = host.replaceFirst("^(www\\.|uat\\.|test\\.|qa\\.|prod\\.)", "");
             return formatClient(cleanHost.replace('.', '-'));
         } catch (Exception ignored) {
@@ -380,7 +378,7 @@ public class ConfigReader {
             String normalized = client.getUrl().matches("(?i)^https?://.*") ? client.getUrl() : "https://" + client.getUrl();
             String host = URI.create(normalized).getHost();
             if (host == null || host.isBlank()) return "unknown";
-            // Remove common prefixes
+
             return host.replaceFirst("^(www\\.|uat\\.|test\\.|qa\\.|prod\\.)", "");
         } catch (Exception ignored) {
             return "unknown";
@@ -486,3 +484,4 @@ public class ConfigReader {
         return env == null || env.isBlank() ? getProperty("smtpPassword", "") : env.trim();
     }
 }
+

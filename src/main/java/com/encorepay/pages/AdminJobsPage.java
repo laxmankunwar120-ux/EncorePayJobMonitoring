@@ -178,7 +178,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         List<JobStatus> results = new ArrayList<>();
 
-
         try {
             action.markStep("navigate to Admin Jobs");
             ensureJobsPage();
@@ -189,7 +188,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             results.add(unavailableJobPlaceholder(clientName, JOB_POST_RECEIPTS, e));
         }
 
-
         try {
             action.markStep("Encore Download Collection Items Job");
             ensureJobsPage();
@@ -198,7 +196,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             System.out.println("[WARN] Download Collection Items Job capture error for " + clientName + ": " + e.getMessage());
             results.add(unavailableJobPlaceholder(clientName, JOB_COLLECTION_ITEMS, e));
         }
-
 
         try {
             action.markStep("Encore Up Coming Demands Job");
@@ -346,8 +343,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
      */
     private String selectReceiptDateToday() {
         WebElement date = wait.until(ExpectedConditions.visibilityOfElementLocated(RECEIPT_DATE));
-        // "Today" is a business-day question, so it is asked in the business zone rather than
-        // the machine's zone; a runner in UTC would otherwise pick yesterday late in the evening.
+
         String today = LocalDate.now(config.getBusinessZone()).toString();
         ((JavascriptExecutor) driver).executeScript(
             "arguments[0].value=arguments[1];" +
@@ -396,17 +392,11 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             ExpectedConditions.elementToBeClickable(RECEIPT_SEARCH)
         );
 
-        // The query string updates as soon as the search is requested, which happens before the
-        // new rows arrive. The previous result set is recorded so a filter that changed nothing
-        // can still be told apart from one that never ran.
         String rangeBefore = readPaginatorRange();
         String signatureBefore = receiptResultsSignature();
 
         clickAndWait(search);
 
-        // The app acknowledges the filter by rewriting the query string, which is the signal it
-        // actually acts on. Waiting for the rows to change instead would stall on any client
-        // whose server-side filter legitimately returns an identical page.
         waitForState("the '" + expectedStatus + "' receipt search to be applied", d -> {
             WebElement selectElement = d.findElement(LMS_POSTING_STATUS);
 
@@ -423,8 +413,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 .contains("lmspostingstatus=" + expectedStatus.toLowerCase(Locale.ROOT));
         });
 
-        // The rows may still be re-rendering, so settle on rows, an explicit empty result, or a
-        // page that has no paginator at all.
         boolean settled = wait.until(d ->
             !visibleReceiptRows().isEmpty() || isReceiptEmpty() || readPaginatorRange().isBlank());
 
@@ -434,9 +422,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     + readPaginatorRange() + "')");
         }
 
-        // The app echoes the applied filters into the query string. Disagreement there means the
-        // counts below belong to a different filter than the one that was set, which would make
-        // the numbers wrong rather than merely missing.
         String expectedDate = LocalDate.now(config.getBusinessZone()).toString();
         String appliedDate = queryParam("receiptdate");
         if (!appliedDate.isBlank() && !appliedDate.equalsIgnoreCase(expectedDate)) {
@@ -450,7 +435,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     + "' instead of " + expectedStatus);
         }
     }
-
 
     /** Reads a query parameter from the current URL without executing script. */
     private String queryParam(String name) {
@@ -485,8 +469,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             return Integer.parseInt(matcher.group("total"));
         }
 
-        // Without a parsable label, only the rows on screen can be counted, and that shortfall
-        // is recorded as an incomplete capture rather than being passed off as the total.
         capture.problems.add("Receipt paginator label '" + clean(range)
                 + "' could not be read, so the failed count covers the rows on screen only");
         return visibleReceiptRows().size();
@@ -537,7 +519,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             for (int index = 0; index < rowCount; index++) {
                 validateSessionAndWindow();
 
-                // Re-fetch each iteration; cached row references go stale on re-render.
                 List<WebElement> currentRows = visibleReceiptRows();
 
                 if (index >= currentRows.size()) {
@@ -569,7 +550,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     scrollIntoViewSmooth(icon);
                     fastClick(icon);
 
-                    // Wait for menu to fully open and read reason
                     reason = readFailureReason();
 
                     if (!reason.isBlank()) {
@@ -589,7 +569,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                             + " opened no failure reason after " + maxAttempts + " attempts");
                 }
 
-                // Close menu reliably before moving to next row
                 if (!closeFailureReasonMenu(index)) {
                     problems.add("The failure reason menu for FAILED receipt row " + (index + 1)
                             + " could not be closed, so the remaining rows were not scanned");
@@ -609,8 +588,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             clickAndWait(next);
 
             try {
-                // Waiting for the range alone would race the row re-render, so the new page's
-                // rows (or an explicit empty result) are required as well.
+
                 wait.until(d -> {
                     String after = readPaginatorRange();
                     boolean moved = !after.isBlank() && !after.equals(before);
@@ -652,7 +630,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     }
 
     private String readFailureReason() {
-        // shortWait keeps a menu that never opens from stalling the whole scan.
+
         try {
             return clean(shortWait.until(d -> {
                 List<WebElement> menus = d.findElements(FAILURE_MENU);
@@ -676,7 +654,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         try {
             ((JavascriptExecutor) driver).executeScript(
                 "arguments[0].scrollIntoView({block:'center', inline:'nearest', behavior:'smooth'});", element);
-            // Brief pause to let smooth scroll complete
+
             Thread.sleep(300);
         } catch (RuntimeException | InterruptedException ignored) {
         }
@@ -703,7 +681,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
             if (waitForMenuClosed()) return true;
 
-            // Never click <body>: its centre can hit a row action and navigate away.
             for (By safeTarget : List.of(MENU_BACKDROP, RECEIPTS_HEADING)) {
                 try {
                     WebElement target = visibleElement(safeTarget);
@@ -714,8 +691,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 }
             }
 
-            // The icon is a Material menu trigger, so clicking it again toggles the menu shut.
-            // This is the one dismissal the component itself guarantees.
             try {
                 List<WebElement> rows = visibleReceiptRows();
                 if (rowIndex < rows.size()) {
@@ -749,7 +724,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             return false;
         }
     }
-
 
     private void captureLatestExecutionFromJobsList(String jobName, JobStatus status) {
         validateSessionAndWindow();
@@ -1137,7 +1111,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
             if (container == null) container = modal;
 
-            // Smooth scroll to bottom
             ((JavascriptExecutor) driver).executeScript(
                     "arguments[0].scrollTo({top: arguments[0].scrollHeight, behavior: 'smooth'});", container);
             awaitUiStability();
@@ -1234,7 +1207,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 }
             }
 
-            // Wait for modal to actually close
             try {
                 wait.until(d -> isExecutionModalClosed());
             } catch (RuntimeException ignored) {
@@ -1375,8 +1347,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 WebElement admin = waitForNavigation("the Admin menu trigger",
                         d -> visibleElement(ADMIN_MENU_TRIGGER));
 
-                // moveToElement is required: the trigger opens the menu on mouseover, so a
-                // plain click would do nothing at all.
                 new Actions(driver).moveToElement(admin).perform();
 
                 waitForNavigation("the Admin submenu to become visible", d -> isAdminSubmenuVisible());
@@ -1401,14 +1371,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 WebElement job = waitForNavigation("the Job item inside the Admin submenu",
                         d -> visibleElement(ADMIN_MENU_JOB_ITEM));
 
-                // The panel closes on mouseleave, so the pointer is moved onto the item before
-                // clicking instead of letting the click jump in from outside the panel.
                 new Actions(driver).moveToElement(job).perform();
                 waitForNavigation("the Job item to become clickable",
                         d -> isDisplayed(ADMIN_MENU_JOB_ITEM) && isElementEnabled(ADMIN_MENU_JOB_ITEM));
 
-                // Re-found immediately before the click because Angular re-creates the panel
-                // on every open, which leaves earlier references stale.
                 visibleElement(ADMIN_MENU_JOB_ITEM).click();
                 return;
             } catch (StaleElementReferenceException e) {
@@ -1585,7 +1551,6 @@ private void waitForJobDetailsPage(String jobName) {
             try {
                 if (!isDisplayed(row)) continue;
 
-                // A row is usable with text or the error icon; cells may not have rendered.
                 String text = clean(row.getText());
                 boolean hasText = !text.isBlank();
                 boolean hasErrorIcon = !row.findElements(RECEIPT_ERROR_ICON).isEmpty();
@@ -1602,7 +1567,6 @@ private void waitForJobDetailsPage(String jobName) {
     private List<WebElement> visibleJobRows() {
         List<WebElement> result = collectDisplayedRows(JOB_ROWS);
 
-        // Fallback for builds without the app-job wrapper; never mixes in other grids.
         if (result.isEmpty()) {
             result = collectDisplayedRows(JOB_ROWS_FALLBACK);
         }
@@ -1934,3 +1898,4 @@ private void waitForJobDetailsPage(String jobName) {
         Set<String> problems = new LinkedHashSet<>();
     }
 }
+

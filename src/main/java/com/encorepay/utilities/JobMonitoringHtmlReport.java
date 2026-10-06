@@ -60,7 +60,6 @@ public final class JobMonitoringHtmlReport {
     public static String generateCombined(List<JobStatus> statuses, List<String> failures) {
         StringBuilder html = baseHtml();
 
-        // Calculate summary counts
         int totalClients = (int) statuses.stream()
                 .map(JobStatus::getClientName)
                 .filter(c -> c != null && !c.isBlank())
@@ -79,8 +78,6 @@ public final class JobMonitoringHtmlReport {
 
         Map<String, List<JobStatus>> grouped = groupByClient(statuses);
 
-        // A client that failed before producing any status would otherwise be missing from
-        // every table, which reads as "not monitored". Represent it explicitly.
         addUnmonitoredClients(grouped, failures);
 
         List<JobStatus> posts = new ArrayList<>();
@@ -614,14 +611,14 @@ public final class JobMonitoringHtmlReport {
             return "No details available";
         }
         String clean = reason.replaceAll("\\s+", " ").trim();
-        // Remove diagnostic suffixes like [step=...] [url=...] [title=...] [readyState=...] [screenshot=...]
+
         clean = clean.replaceAll("\\s*\\[step=[^\\]]*\\]", "");
         clean = clean.replaceAll("\\s*\\[url=[^\\]]*\\]", "");
         clean = clean.replaceAll("\\s*\\[title=[^\\]]*\\]", "");
         clean = clean.replaceAll("\\s*\\[readyState=[^\\]]*\\]", "");
         clean = clean.replaceAll("\\s*\\[screenshot=[^\\]]*\\]", "");
         clean = clean.trim();
-        // Truncate to 180 chars for readability
+
         if (clean.length() > 180) {
             clean = clean.substring(0, 177) + "...";
         }
@@ -643,7 +640,7 @@ public final class JobMonitoringHtmlReport {
                         try {
                             file.delete();
                         } catch (Exception ignored) {
-                            // A locked file is removed by the next run.
+
                         }
                     }
                 }
@@ -669,13 +666,11 @@ public final class JobMonitoringHtmlReport {
                     try {
                         file.delete();
                     } catch (Exception ignored) {
-                        // Keeping a stale report is preferable to failing the run.
+
                     }
                 }
             }
 
-            // The file name is stamped in the business zone so a scheduled run is named for the
-            // business day it reports on, whatever timezone the runner happens to be in.
             SimpleDateFormat stampFormat = new SimpleDateFormat("yyyy-MM-dd_HHmmss");
             stampFormat.setTimeZone(TimeZone.getTimeZone(new ConfigReader().getBusinessZone()));
             String stamp = stampFormat.format(new Date());
@@ -715,3 +710,4 @@ public final class JobMonitoringHtmlReport {
     }
 
 }
+

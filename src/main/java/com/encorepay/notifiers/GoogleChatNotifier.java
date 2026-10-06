@@ -70,7 +70,7 @@ private static final int MAX_REASON_LENGTH = 600;
         String webhook = new ConfigReader().getGoogleChatWebhookUrl();
 
         if (webhook == null || webhook.isBlank()) {
-            // Not configured is a deliberate choice, not a failure, so nothing is raised.
+
             System.out.println("[WARN] Google Chat notification skipped.");
             return;
         }
@@ -147,7 +147,6 @@ private static void appendSummary(StringBuilder message, int clients,
         message.append("\n\n");
     }
 
-
     private enum Align { LEFT, RIGHT }
 
     /** Professional mobile-friendly format with aligned columns using monospace. */
@@ -157,7 +156,6 @@ private static void appendSummary(StringBuilder message, int clients,
             return;
         }
 
-        // Calculate column widths
         int[] widths = new int[headers.length];
         for (int i = 0; i < headers.length; i++) {
             widths[i] = headers[i].length();
@@ -168,7 +166,6 @@ private static void appendSummary(StringBuilder message, int clients,
             }
         }
 
-        // Cap widths for mobile readability
         for (int i = 0; i < widths.length; i++) {
             int cap = switch (headers[i]) {
                 case "Client" -> 22;
@@ -229,7 +226,6 @@ private static void appendSummary(StringBuilder message, int clients,
         return value.length() >= width ? value : " ".repeat(width - value.length()) + value;
     }
 
-
     private static void appendPostReceipts(StringBuilder message, List<JobStatus> jobs) {
         List<JobStatus> records = jobs.stream()
                 .filter(s -> POST_RECEIPTS.equalsIgnoreCase(s.getJobName()))
@@ -274,7 +270,7 @@ private static void appendSummary(StringBuilder message, int clients,
         Map<String, Set<String>> reasonsByClient = new LinkedHashMap<>();
 
         for (JobStatus status : records) {
-            // Only real failures can have real reasons - skip anything else up front.
+
             if (status.getFailureReasons() == null || status.getFailedCount() == 0) {
                 continue;
             }
@@ -287,7 +283,6 @@ private static void appendSummary(StringBuilder message, int clients,
                 }
             }
 
-            // Nothing survived cleaning -> don't create a client entry at all.
             if (reasons.isEmpty()) {
                 continue;
             }
@@ -322,7 +317,6 @@ private static void appendSummary(StringBuilder message, int clients,
             message.append("\n");
         }
     }
-
 
     private static void appendJob(StringBuilder message, List<JobStatus> jobs,
                                    String jobName, String heading) {
@@ -631,3 +625,4 @@ private static void appendSummary(StringBuilder message, int clients,
         return text.substring(0, Math.max(0, maxLength - 3)).trim() + "...";
     }
 }
+
