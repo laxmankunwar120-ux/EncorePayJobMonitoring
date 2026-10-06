@@ -4,9 +4,6 @@ on:
   schedule:
     # TEST: 9:15 PM IST (15:45 UTC)
     - cron: "45 15 * * *"
-
-    # 10:00 PM IST
-    - cron: "0 22 * * *"
       timezone: "Asia/Kolkata"
 
   workflow_dispatch:
