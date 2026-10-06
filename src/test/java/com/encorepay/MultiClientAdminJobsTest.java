@@ -124,7 +124,10 @@ public class MultiClientAdminJobsTest {
         // cannot silence a production run that still has results worth sending.
         if (htmlReportPath != null) {
             final String reportPath = htmlReportPath;
-            notifySafely(clientFailures, "Google Chat", () -> GoogleChatNotifier.notify(allStatuses, clientFailures, clients, reportPath));
+            List<String> configuredClientNames = clients.stream()
+                    .map(this::safeClientName)
+                    .toList();
+            notifySafely(clientFailures, "Google Chat", () -> GoogleChatNotifier.notify(allStatuses, clientFailures, configuredClientNames, reportPath));
             notifySafely(clientFailures, "Email", () -> EmailNotifier.notify(allStatuses, reportPath));
         } else {
             clientFailures.add("NOTIFICATION :: Skipped because no HTML report could be generated.");
