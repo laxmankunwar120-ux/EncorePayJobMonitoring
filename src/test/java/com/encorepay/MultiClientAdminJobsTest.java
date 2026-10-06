@@ -93,11 +93,23 @@ public class MultiClientAdminJobsTest {
         }
 
         if (!neverMonitored.isEmpty()) {
-            String message = "These configured clients produced no monitoring result: "
-                    + String.join(", ", neverMonitored)
-                    + ". Check their CLIENT_N_URL secret, or CLIENT_URLS if that is the source in use.";
-            clientFailures.add("CLIENT COVERAGE :: " + message);
-            System.out.println("[CLIENT COVERAGE] " + message);
+            List<String> uncovered = new ArrayList<>();
+
+            for (String clientName : neverMonitored) {
+                boolean alreadyReported = clientFailures.stream()
+                        .anyMatch(failure -> failure.startsWith(clientName + " :: "));
+                if (!alreadyReported) {
+                    uncovered.add(clientName);
+                }
+            }
+
+            if (!uncovered.isEmpty()) {
+                String message = "These configured clients produced no monitoring result: "
+                        + String.join(", ", uncovered)
+                        + ". Check their CLIENT_N_URL secret, or CLIENT_URLS if that is the source in use.";
+                clientFailures.add("CLIENT COVERAGE :: " + message);
+                System.out.println("[CLIENT COVERAGE] " + message);
+            }
         }
 
         String htmlReportPath = null;
