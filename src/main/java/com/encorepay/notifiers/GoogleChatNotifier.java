@@ -110,8 +110,9 @@ private static final int MAX_REASON_LENGTH = 600;
                     .count();
 
         long successful = jobs.stream().filter(GoogleChatNotifier::isSuccessful).count();
-        long failed = jobs.stream().filter(GoogleChatNotifier::isFailed).count()
-                + countClientFailures(clientFailures);
+        long failed = jobs.stream().filter(GoogleChatNotifier::isFailed).count();
+
+        int unmonitored = countClientFailures(clientFailures);
 
         StringBuilder message = new StringBuilder();
 
@@ -122,7 +123,7 @@ private static final int MAX_REASON_LENGTH = 600;
                 .append(clients)
                 .append("\n\n");
 
-        appendSummary(message, clients, successful, failed);
+        appendSummary(message, clients, successful, failed, unmonitored);
         appendPostReceipts(message, jobs);
         appendJob(message, jobs, COLLECTIONS, "2. DOWNLOAD COLLECTION ITEMS JOB");
         appendJob(message, jobs, UPCOMING, "3. UPCOMING DEMAND JOB");
@@ -134,11 +135,16 @@ private static final int MAX_REASON_LENGTH = 600;
     }
 
 private static void appendSummary(StringBuilder message, int clients,
-                                       long successful, long failed) {
+                                        long successful, long failed, int unmonitored) {
         message.append("*SUMMARY*\n")
                 .append("Total Clients : ").append(clients).append("\n")
+                .append("Monitored     : ").append(clients - unmonitored).append("\n")
                 .append("Successful    : ").append(successful).append("\n")
-                .append("Failed        : ").append(failed).append("\n\n");
+                .append("Failed        : ").append(failed).append("\n");
+        if (unmonitored > 0) {
+            message.append("Unmonitored   : ").append(unmonitored).append(" (see Client Access Failures)");
+        }
+        message.append("\n\n");
     }
 
 
