@@ -503,12 +503,13 @@ private static void appendSummary(StringBuilder message, int clients,
             return;
         }
 
-        message.append("GitHub Actions Run : ")
+        message.append("Report Artifacts : ")
                 .append(server.trim())
                 .append("/")
                 .append(repository.trim())
                 .append("/actions/runs/")
                 .append(runId.trim())
+                .append("#artifacts")
                 .append("\n\n");
     }
 

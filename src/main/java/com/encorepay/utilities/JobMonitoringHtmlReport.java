@@ -353,8 +353,24 @@ public final class JobMonitoringHtmlReport {
                 .append("<div class='header-meta'>")
                 .append("<strong>Generated:</strong> ")
                 .append(timestamp)
+                .append(buildArtifactLink())
                 .append("</div>")
                 .append("</div>");
+    }
+
+    private static String buildArtifactLink() {
+        String server = System.getenv("GITHUB_SERVER_URL");
+        String repository = System.getenv("GITHUB_REPOSITORY");
+        String runId = System.getenv("GITHUB_RUN_ID");
+
+        if (server == null || server.isBlank()
+                || repository == null || repository.isBlank()
+                || runId == null || runId.isBlank()) {
+            return "";
+        }
+
+        String url = server.trim() + "/" + repository.trim() + "/actions/runs/" + runId.trim() + "#artifacts";
+        return " <a href='" + url + "' target='_blank' style='color:#003366; text-decoration:underline; font-size:12px;'>[Download Report Artifacts]</a>";
     }
 
     private static void appendPostRows(StringBuilder html, String title, List<JobStatus> statuses) {
