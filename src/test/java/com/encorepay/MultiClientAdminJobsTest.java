@@ -1,6 +1,5 @@
 package com.encorepay;
 
-import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -162,54 +161,16 @@ public class MultiClientAdminJobsTest {
         if ("single".equalsIgnoreCase(runMode)) {
             List<ClientConfig> first = List.of(clients.get(0));
             System.out.println("[RUN MODE] SINGLE - Running only client.1: " + safeClientName(first.get(0)));
-            return disambiguateDuplicateClientNames(first);
+            return first;
         }
 
         if ("multiple".equalsIgnoreCase(runMode)) {
             System.out.println("[RUN MODE] MULTIPLE - Running all configured clients: " + clients.size());
-            return disambiguateDuplicateClientNames(clients);
+            return clients;
         }
 
         throw new IllegalArgumentException(
                 "Invalid runMode: " + runMode + ". Allowed values are single or multiple.");
-    }
-
-    /**
-     * The report groups rows by client display name, so two clients sharing a name would
-     * silently collapse into one another. Returns a list with duplicates renamed by host.
-     */
-    private List<ClientConfig> disambiguateDuplicateClientNames(List<ClientConfig> clients) {
-        Map<String, Integer> seen = new LinkedHashMap<>();
-        List<ClientConfig> result = new ArrayList<>();
-
-        for (ClientConfig client : clients) {
-            String name = safeClientName(client);
-            int count = seen.merge(name, 1, Integer::sum);
-
-            if (count == 1) {
-                result.add(client);
-                continue;
-            }
-
-            String unique = name + " (" + hostOf(client) + ")";
-            System.out.println("[WARN] Duplicate client name '" + name + "' - reporting as '" + unique + "'.");
-            result.add(new ClientConfig(
-                    unique, client.getUrl(), client.getUsername(), client.getPassword(), client.isSso()));
-        }
-
-        return result;
-    }
-
-    private String hostOf(ClientConfig client) {
-        try {
-            String host = URI.create(client.getUrl()).getHost();
-            if (host != null && !host.isBlank()) {
-                return host;
-            }
-        } catch (Exception ignored) {
-            // Fall through to the identity-based suffix.
-        }
-        return "client " + Integer.toHexString(System.identityHashCode(client));
     }
 
     private ClientRunResult runClient(ClientConfig client, String runCorrelationId) {

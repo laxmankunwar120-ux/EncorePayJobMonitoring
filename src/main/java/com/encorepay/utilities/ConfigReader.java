@@ -158,7 +158,7 @@ public class ConfigReader {
         return deriveClientName(getURL());
     }
 
-    public List<ClientConfig> getClients() {
+    private List<ClientConfig> getClientsInternal() {
         List<String> urls = readList("CLIENT_URLS", "clientUrls", "client.urls");
         List<ClientConfig> indexedClients = readIndexedClients();
 
@@ -175,12 +175,44 @@ public class ConfigReader {
                     + " client(s) configured.");
             }
             warnAboutMissingIndexedCredentials(mergedClients);
-            return mergedClients;
+            return disambiguateClientNames(mergedClients);
         }
 
         String url = getURL();
         if (url.isBlank()) throw new IllegalStateException("No client URL configured. Set url, APP_URL, CLIENT_URLS, or CLIENT_1_URL.");
         return List.of(new ClientConfig(getClientName(), url, getUsername(), getPassword(), false));
+    }
+
+    public List<ClientConfig> getClients() {
+        return getClientsInternal();
+    }
+
+    /**
+     * Ensures all client names are unique by appending host when duplicates exist.
+     * This runs in ConfigReader so names are correct everywhere (reports, logs, etc).
+     */
+    private List<ClientConfig> disambiguateClientNames(List<ClientConfig> clients) {
+        Map<String, Integer> seen = new LinkedHashMap<>();
+        List<ClientConfig> result = new ArrayList<>();
+
+        for (ClientConfig client : clients) {
+            String name = client.getName();
+            if (name == null || name.isBlank()) {
+                name = deriveClientName(client.getUrl());
+            }
+            int count = seen.merge(name, 1, Integer::sum);
+
+            if (count == 1) {
+                result.add(new ClientConfig(name, client.getUrl(), client.getUsername(), client.getPassword(), client.isSso()));
+                continue;
+            }
+
+            String host = hostOf(client);
+            String unique = name + " (" + host + ")";
+            System.out.println("[CONFIG] Duplicate client name '" + name + "' - reporting as '" + unique + "'.");
+            result.add(new ClientConfig(unique, client.getUrl(), client.getUsername(), client.getPassword(), client.isSso()));
+        }
+        return result;
     }
 
     /**
@@ -331,14 +363,28 @@ public class ConfigReader {
             String normalized = url.matches("(?i)^https?://.*") ? url : "https://" + url;
             String host = URI.create(normalized).getHost();
             if (host == null || host.isBlank()) return "";
-            String[] labels = host.toLowerCase(Locale.ROOT).split("\\.");
-            for (String label : labels) {
-                if (label.isBlank() || label.equals("uat") || label.equals("test") || label.equals("qa") || label.equals("prod") || label.equals("www")) continue;
-                return formatClient(label);
-            }
+            // Remove common prefixes and use full remaining host for uniqueness
+            String cleanHost = host.replaceFirst("^(www\\.|uat\\.|test\\.|qa\\.|prod\\.)", "");
+            return formatClient(cleanHost.replace('.', '-'));
         } catch (Exception ignored) {
         }
         return "";
+    }
+
+    /**
+     * Extracts a meaningful host identifier from URL for disambiguation.
+     * Uses full host (minus www/uat/test/qa/prod prefixes) for uniqueness.
+     */
+    private String hostOf(ClientConfig client) {
+        try {
+            String normalized = client.getUrl().matches("(?i)^https?://.*") ? client.getUrl() : "https://" + client.getUrl();
+            String host = URI.create(normalized).getHost();
+            if (host == null || host.isBlank()) return "unknown";
+            // Remove common prefixes
+            return host.replaceFirst("^(www\\.|uat\\.|test\\.|qa\\.|prod\\.)", "");
+        } catch (Exception ignored) {
+            return "unknown";
+        }
     }
 
     private String formatClient(String value) {
