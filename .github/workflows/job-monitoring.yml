@@ -2,12 +2,11 @@ name: EncorePay Job Monitoring
 
 on:
   schedule:
-    - cron: '30 1 * * *'   # 7 AM IST (UTC+5:30) = 1:30 AM UTC
-    - cron: '30 16 * * *'  # 10 PM IST (UTC+5:30) = 4:30 PM UTC
-    - cron: '20 21 * * *'  # TEST: 2:50 AM IST (UTC+5:30) = 9:20 PM UTC - REMOVE AFTER TEST
-  workflow_dispatch:       # Allow manual trigger
+    - cron: '30 1 * * *'    # 7 AM IST
+    - cron: '30 16 * * *'   # 10 PM IST
+  workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
     paths:
       - 'src/**'
       - 'pom.xml'
@@ -23,17 +22,12 @@ env:
 
 jobs:
   job-monitoring:
-    name: Job Monitoring (${{ matrix.os }})
+    name: Job Monitoring
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: read
       issues: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
 
     steps:
       - name: Checkout repository
@@ -67,7 +61,7 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Install dependencies (Ubuntu 24.04 compatible)
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libnss3 libxss1 libappindicator3-1 libasound2t64 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc-s1 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxtst6 ca-certificates fonts-liberation lsb-release wget xdg-utils
@@ -129,8 +123,7 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            
-            // Find the latest report
+
             const reportDir = 'test-output/report';
             let reportPath = '';
             try {
@@ -141,20 +134,19 @@ jobs:
             } catch (e) {
               console.log('No report found');
             }
-            
+
             const body = `## ❌ EncorePay Job Monitoring Failed
-            
-            **Run:** ${process.env.GITHUB_RUN_ID}
-            **Workflow:** ${process.env.GITHUB_WORKFLOW}
-            **Commit:** ${process.env.GITHUB_SHA.substring(0, 7)}
-            **Branch:** ${process.env.GITHUB_REF_NAME}
-            **Time:** ${new Date().toISOString()}
-            
-            The scheduled job monitoring run has failed. Please check the GitHub Actions logs for details.
-            
-            [View Run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`;
-            
-            // Create an issue for tracking
+
+**Run:** ${process.env.GITHUB_RUN_ID}
+**Workflow:** ${process.env.GITHUB_WORKFLOW}
+**Commit:** ${process.env.GITHUB_SHA.substring(0, 7)}
+**Branch:** ${process.env.GITHUB_REF_NAME}
+**Time:** ${new Date().toISOString()}
+
+The scheduled job monitoring run has failed. Please check the GitHub Actions logs for details.
+
+[View Run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`;
+
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
