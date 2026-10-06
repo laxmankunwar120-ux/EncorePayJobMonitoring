@@ -66,6 +66,7 @@ public final class WebDriverFactory {
                 chromePrefs.put("profile.default_content_setting_values.geolocation", 1);
                 chromePrefs.put("profile.default_content_settings.geolocation", 1);
                 chromePrefs.put("profile.managed_default_content_settings.geolocation", 1);
+                chromePrefs.put("profile.managed_default_content_settings.notifications", 1);
                 chromePrefs.put("profile.default_content_setting_values.notifications", 1);
                 chromeOptions.setExperimentalOption("prefs", chromePrefs);
                 chromeOptions.addArguments(
@@ -89,15 +90,15 @@ public final class WebDriverFactory {
     public static void configure(WebDriver driver, ConfigReader config) {
         driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(config.getImplicitWait()));
         driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(config.getPageLoadTimeout()));
-        driver.manage().window().setSize(new org.openqa.selenium.Dimension(1920, 1080));
 
-if (driver instanceof ChromiumDriver chromiumDriver) {
+        try {
+            driver.manage().window().setSize(new org.openqa.selenium.Dimension(1920, 1080));
+        } catch (Exception e) {
+            System.out.println("[WARN] Browser window resize skipped: " + e.getMessage());
+        }
+
+        if (driver instanceof ChromiumDriver chromiumDriver) {
             try {
-                // The application renders every job timestamp with the browser's own date
-                // formatting. A CI runner's browser defaults to UTC, which would print each
-                // application instant 5:30 earlier than a workstation in the business zone.
-                // Pinning the browser timezone makes the application render the same business
-                // timestamps everywhere; the application's own values are not altered.
                 Map<String, Object> timezoneParams = new HashMap<>();
                 timezoneParams.put("timezoneId", config.getBusinessZone().getId());
                 chromiumDriver.executeCdpCommand("Emulation.setTimezoneOverride", timezoneParams);
@@ -126,7 +127,7 @@ if (driver instanceof ChromiumDriver chromiumDriver) {
                     + "    };"
                     + "    navigator.geolocation.watchPosition = function(success, error, options) {"
                     + "      if (typeof success === 'function') {"
-                    + "        success({ coords: { latitude: 19.0760, longitude: 72.8777, accuracy: 100, altitude: null, altitudeAccuracy: null, heading: null, speed: null }, timestamp: Date.now() });"
+                    + "        success({ coords: { latitude: 19.0760, longitude: 19.0760, accuracy: 100, altitude: null, altitudeAccuracy: null, heading: null, speed: null }, timestamp: Date.now() });"
                     + "      }"
                     + "      return 1;"
                     + "    };"
