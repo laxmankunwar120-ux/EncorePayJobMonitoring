@@ -73,7 +73,12 @@ public final class GoogleChatNotifier {
         }
 
         String message = buildMessage(statuses, clientFailures, configuredClients, htmlReportPath);
-        GoogleChatApiNotifier.send(webhook, htmlReportPath, message);
+        try {
+            GoogleChatApiNotifier.send(webhook, htmlReportPath, message);
+        } catch (Exception e) {
+            System.err.println("[ERROR] Google Chat notification failed: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     static String buildMessage(List<JobStatus> statuses) {
