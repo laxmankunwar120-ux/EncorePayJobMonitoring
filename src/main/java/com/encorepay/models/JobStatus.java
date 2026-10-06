@@ -45,10 +45,7 @@ public class JobStatus {
     public String getDateTime() { return dateTime; }
     public void setDateTime(String dateTime) { this.dateTime = dateTime; }
 
-    /**
-     * Returns each unique failure reason as a formatted string:
-     * {@code [CODE] (N receipts)} or the full reason text when no bracketed code exists.
-     */
+    
     public List<String> getFailureReasons() {
         List<String> result = new ArrayList<>();
         for (Map.Entry<String, Integer> entry : failureReasonCounts.entrySet()) {
@@ -72,11 +69,7 @@ public class JobStatus {
         this.jobFailureReason = jobFailureReason == null ? null : trimReason(jobFailureReason);
     }
 
-    /**
-     * Adds a failure reason, keyed by its bracketed error code when present,
-     * otherwise by the trimmed reason text. Counts occurrences so that many
-     * accounts sharing the same code collapse to a single entry.
-     */
+    
     public void addFailureReason(String reason) {
         if (reason == null || reason.isBlank()) return;
         String clean = trimReason(reason);
@@ -85,8 +78,12 @@ public class JobStatus {
         failureReasonCounts.merge(key, 1, Integer::sum);
     }
 
-    public String getValidationMessage() { return validationMessage; }
+public String getValidationMessage() { return validationMessage; }
     public void setValidationMessage(String validationMessage) { this.validationMessage = validationMessage; }
+
+    public Map<String, Integer> getFailureReasonCounts() {
+        return Collections.unmodifiableMap(failureReasonCounts);
+    }
 
     public String getJobStatus() { return status; }
     public String getEndDateTime() { return dateTime; }
@@ -108,4 +105,5 @@ public class JobStatus {
         return null;
     }
 }
+
 
