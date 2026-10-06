@@ -2,9 +2,11 @@ name: EncorePay Job Monitoring
 
 on:
   schedule:
-    # TEST: 9:15 PM IST (15:45 UTC)
-    - cron: "45 15 * * *"
+    # 9:30 PM IST (16:00 UTC)
+    - cron: "0 16 * * *"
       timezone: "Asia/Kolkata"
+
+  workflow_dispatch:
 
   workflow_dispatch:
 
