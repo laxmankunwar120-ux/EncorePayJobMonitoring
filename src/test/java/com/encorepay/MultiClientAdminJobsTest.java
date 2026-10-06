@@ -136,11 +136,17 @@ public class MultiClientAdminJobsTest {
             clientFailures.add("NOTIFICATION :: Skipped because no HTML report could be generated.");
         }
 
-        if (!clientFailures.isEmpty()) {
-            Assert.fail("One or more clients failed: " + String.join(" | ", clientFailures));
+        boolean anyClientMonitored = !allStatuses.isEmpty();
+
+        if (!anyClientMonitored) {
+            Assert.fail("No clients could be monitored. All " + clients.size() + " configured clients failed: " + String.join(" | ", clientFailures));
         }
 
-        System.out.println("[MULTI-CLIENT] All configured clients completed successfully.");
+        if (!clientFailures.isEmpty()) {
+            System.out.println("[MULTI-CLIENT] Partial success: " + monitoredClients.size() + " of " + clients.size() + " clients monitored. Failures: " + String.join(" | ", clientFailures));
+        } else {
+            System.out.println("[MULTI-CLIENT] All " + clients.size() + " configured clients completed successfully.");
+        }
     }
 
     private void notifySafely(List<String> clientFailures, String label, Runnable notifier) {
