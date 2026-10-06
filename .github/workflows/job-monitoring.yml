@@ -124,7 +124,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: job-monitoring-report-${{ github.run_id }}
+          name: job-monitoring-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-output/report/*.html
           retention-days: 30
 
@@ -132,7 +132,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: job-monitoring-screenshots-${{ github.run_id }}
+          name: job-monitoring-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
           path: screenshots/
           retention-days: 7
 
@@ -148,8 +148,8 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add report.html
-            git commit -m "Update report from run ${{ github.run_id }}"
-            git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:gh-pages
+            git commit -m "Update report from run ${{ github.run_id }}" || echo "No changes to commit"
+            git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:gh-pages 2>/dev/null || echo "Push failed, Pages may not be enabled"
             echo "REPORT_URL=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/report.html" >> $GITHUB_ENV
           else
             echo "No HTML report found to deploy"
