@@ -1,0 +1,160 @@
+name: EncorePay Job Monitoring
+
+on:
+  schedule:
+    - cron: '30 1 * * *'   # 7 AM IST (UTC+5:30) = 1:30 AM UTC
+    - cron: '30 16 * * *'  # 10 PM IST (UTC+5:30) = 4:30 PM UTC
+  workflow_dispatch:       # Allow manual trigger
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+      - 'testng.xml'
+      - '.github/workflows/job-monitoring.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  MAVEN_OPTS: "-Xmx2g -XX:+UseG1GC"
+
+jobs:
+  job-monitoring:
+    name: Job Monitoring (${{ matrix.os }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Cache ChromeDriver
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/selenium
+          key: ${{ runner.os }}-chromedriver-${{ hashFiles('**/pom.xml') }}
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@latest
+        with:
+          chrome-version: stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgconf-2-4 libnss3 libxss1 libappindicator3-1 libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxtst6 ca-certificates fonts-liberation libappindicator3-1 lsb-release wget xdg-utils
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Job Monitoring
+        env:
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          CLIENT_URLS: ${{ secrets.CLIENT_URLS }}
+          CLIENT_1_URL: ${{ secrets.CLIENT_1_URL }}
+          CLIENT_1_USERNAME: ${{ secrets.CLIENT_1_USERNAME }}
+          CLIENT_1_PASSWORD: ${{ secrets.CLIENT_1_PASSWORD }}
+          CLIENT_1_SSO: ${{ secrets.CLIENT_1_SSO }}
+          CLIENT_2_URL: ${{ secrets.CLIENT_2_URL }}
+          CLIENT_2_USERNAME: ${{ secrets.CLIENT_2_USERNAME }}
+          CLIENT_2_PASSWORD: ${{ secrets.CLIENT_2_PASSWORD }}
+          CLIENT_2_SSO: ${{ secrets.CLIENT_2_SSO }}
+          CLIENT_3_URL: ${{ secrets.CLIENT_3_URL }}
+          CLIENT_3_USERNAME: ${{ secrets.CLIENT_3_USERNAME }}
+          CLIENT_3_PASSWORD: ${{ secrets.CLIENT_3_PASSWORD }}
+          CLIENT_3_SSO: ${{ secrets.CLIENT_3_SSO }}
+          CLIENT_4_URL: ${{ secrets.CLIENT_4_URL }}
+          CLIENT_4_USERNAME: ${{ secrets.CLIENT_4_USERNAME }}
+          CLIENT_4_PASSWORD: ${{ secrets.CLIENT_4_PASSWORD }}
+          CLIENT_4_SSO: ${{ secrets.CLIENT_4_SSO }}
+          CLIENT_5_URL: ${{ secrets.CLIENT_5_URL }}
+          CLIENT_5_USERNAME: ${{ secrets.CLIENT_5_USERNAME }}
+          CLIENT_5_PASSWORD: ${{ secrets.CLIENT_5_PASSWORD }}
+          CLIENT_5_SSO: ${{ secrets.CLIENT_5_SSO }}
+          BUSINESS_ZONE: Asia/Kolkata
+          HEADLESS: "true"
+        run: |
+          mvn clean test -DsuiteXmlFile=testng.xml -Dheadless=true
+
+      - name: Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-monitoring-report-${{ github.run_id }}
+          path: test-output/report/*.html
+          retention-days: 30
+
+      - name: Upload Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-monitoring-screenshots-${{ github.run_id }}
+          path: screenshots/
+          retention-days: 7
+
+      - name: Notify on Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Find the latest report
+            const reportDir = 'test-output/report';
+            let reportPath = '';
+            try {
+              const files = fs.readdirSync(reportDir).filter(f => f.endsWith('.html'));
+              if (files.length > 0) {
+                reportPath = path.join(reportDir, files.sort().reverse()[0]);
+              }
+            } catch (e) {
+              console.log('No report found');
+            }
+            
+            const body = `## ❌ EncorePay Job Monitoring Failed
+            
+            **Run:** ${process.env.GITHUB_RUN_ID}
+            **Workflow:** ${process.env.GITHUB_WORKFLOW}
+            **Commit:** ${process.env.GITHUB_SHA.substring(0, 7)}
+            **Branch:** ${process.env.GITHUB_REF_NAME}
+            **Time:** ${new Date().toISOString()}
+            
+            The scheduled job monitoring run has failed. Please check the GitHub Actions logs for details.
+            
+            [View Run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`;
+            
+            // Create an issue for tracking
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Job Monitoring Failed - ${new Date().toISOString().split('T')[0]}`,
+              body: body,
+              labels: ['monitoring', 'failure', 'automated']
+            });

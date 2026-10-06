@@ -1,0 +1,12 @@
+target/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.env
+*.log
+screenshots/
+test-output/
+reports/
+src/main/resources/config.properties
