@@ -331,12 +331,12 @@ public class MultiClientAdminJobsTest {
         }
     }
 
-    private void validate(JobStatus status) {
+private void validate(JobStatus status) {
         Assert.assertTrue(status.getClientName() != null && !status.getClientName().isBlank(), "Client name must be captured for " + status.getJobName());
         Assert.assertTrue(status.getStatus() != null && !status.getStatus().isBlank(), "Execution status must be captured for " + status.getJobName());
         Assert.assertTrue(status.getDateTime() != null && !status.getDateTime().isBlank(), "Execution End Date/Time must be captured for " + status.getJobName());
-        Assert.assertFalse("NOT CAPTURED".equalsIgnoreCase(status.getStatus()), "Execution status was not captured for " + status.getJobName());
-        Assert.assertFalse("NOT CAPTURED".equalsIgnoreCase(status.getDateTime()), "Execution End Date/Time was not captured for " + status.getJobName());
+        Assert.assertFalse("N/A".equalsIgnoreCase(status.getStatus()), "Execution status was not captured for " + status.getJobName());
+        Assert.assertFalse("N/A".equalsIgnoreCase(status.getDateTime()), "Execution End Date/Time was not captured for " + status.getJobName());
     }
 
     private JobStatus findRequired(List<JobStatus> statuses, String name) {

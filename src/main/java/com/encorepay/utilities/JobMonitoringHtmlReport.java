@@ -313,6 +313,13 @@ public final class JobMonitoringHtmlReport {
                 .append("text-align:center;")
                 .append("white-space:nowrap")
                 .append("}")
+                .append(".partial{")
+                .append("background:#fff2cc;")
+                .append("color:#7f6000;")
+                .append("font-weight:bold;")
+                .append("text-align:center;")
+                .append("white-space:nowrap")
+                .append("}")
                 .append(".other{")
                 .append("background:#fff2cc;")
                 .append("color:#7f6000;")
@@ -439,7 +446,7 @@ public final class JobMonitoringHtmlReport {
         }
 
         html.append("</colgroup><thead><tr>")
-                .append("<th class='text-left'>Client</th>")
+                .append("<th class='text-center'>Client</th>")
                 .append("<th class='text-center'>Status</th>");
 
         if (includeCounts) {
@@ -450,7 +457,7 @@ public final class JobMonitoringHtmlReport {
         html.append("<th class='text-center'>Date &amp; Time</th>");
 
         if (hasFailureReason) {
-            html.append("<th class='text-left'>Failure Reason</th>");
+            html.append("<th class='text-center'>Failure Reason</th>");
         }
 
         html.append("</tr></thead><tbody>");
@@ -586,10 +593,14 @@ public final class JobMonitoringHtmlReport {
             return "other";
         }
 
-        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        String normalized = status.trim().toUpperCase(Locale.ROOT).replace(" ", "_");
 
         if ("N/A".equals(normalized)) {
             return "na";
+        }
+
+        if (normalized.equals("PARTIALLY_SUCCESSFUL")) {
+            return "partial";
         }
 
         if (normalized.contains("SUCCESS")
@@ -710,5 +721,6 @@ public final class JobMonitoringHtmlReport {
     }
 
 }
+
 
 

@@ -263,7 +263,13 @@ public final class EmailNotifier {
     }
 
     private static boolean isFailed(JobStatus s) {
-        return safe(s == null ? null : s.getStatus()).toUpperCase(Locale.ROOT).contains("FAIL");
+        String v = safe(s == null ? null : s.getStatus()).toUpperCase(Locale.ROOT).replace(" ", "_");
+        return v.contains("FAIL") && !v.contains("PARTIAL");
+    }
+
+    private static boolean isPartialSuccess(JobStatus s) {
+        String v = safe(s == null ? null : s.getStatus()).toUpperCase(Locale.ROOT).replace(" ", "_");
+        return v.equals("PARTIALLY_SUCCESSFUL");
     }
 
     private static String statusIcon(JobStatus s) {
@@ -271,10 +277,11 @@ public final class EmailNotifier {
     }
 
     private static String displayStatus(String status) {
-        String v = safe(status).toUpperCase(Locale.ROOT);
+        String v = safe(status).toUpperCase(Locale.ROOT).replace(" ", "_");
+        if (v.equals("PARTIALLY_SUCCESSFUL")) return "PARTIALLY_SUCCESSFUL";
         if (v.contains("SUCCESS") || v.contains("COMPLETED") || v.equals("SUCCEEDED")) return "SUCCESSFUL";
         if (v.contains("FAIL")) return "FAILED";
-        return v.isBlank() ? "NOT CAPTURED" : v.toUpperCase(Locale.ROOT);
+        return v.isBlank() ? "N/A" : v.toUpperCase(Locale.ROOT);
     }
 
     private static String safe(String value) { return value == null ? "" : value.trim(); }

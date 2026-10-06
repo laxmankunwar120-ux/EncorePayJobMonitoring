@@ -124,9 +124,11 @@ public class AdminJobsPage extends BasePage {
 private static final Pattern PAGER_PATTERN = Pattern.compile(
             "(\\d+)\\s*(?:[-\\u2013\\u2014]\\s*(\\d+)\\s*)?of\\s*(?<total>\\d+)");
     private static final Pattern FULL_DATE_TIME = Pattern.compile("(?:\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?:\\s+|T)+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[APMapm]{2})?");
-    private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
+private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
             "(?i)Receipt Posting Failure:\\s*Total:\\s*(\\d+)\\s*,\\s*Success:\\s*(\\d+)\\s*,"
                     + "\\s*Partially Success:\\s*(\\d+)\\s*,\\s*Failed:\\s*(\\d+)");
+    private static final Pattern RECEIPT_POSTING_SUCCESS = Pattern.compile(
+            "(?i)Successfully posted all\\s+(\\d+)\\s+receipts?");
 
     private final WebDriverWait jobsPageWait;
 
@@ -739,15 +741,15 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             dateTime = findDateTime(clean(latestExecutionRow.getText()));
         }
 
-        if (executionStatus.isBlank()) {
+if (executionStatus.isBlank()) {
             executionStatus = readStatusFromModalText(modal.getText());
         }
 
         if (executionStatus.isBlank()) {
-            executionStatus = "No Status";
+            executionStatus = "N/A";
         }
         if (dateTime.isBlank()) {
-            dateTime = "NOT CAPTURED";
+            dateTime = "N/A";
         }
 
         validateExecutionData(executionStatus, dateTime, jobName, status);
@@ -776,9 +778,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             System.out.println("[WARN] Job status is FAILED but Reason could not be captured for " + jobName + ".");
         }
 
-        closeExecutionModalUsingUi();
+closeExecutionModalUsingUi();
 
-        if (receiptPostingFailure && status.getFailedCount() > 0) {
+        boolean hasReceiptIssues = receiptPostingFailure && (status.getFailedCount() > 0 || partialReceiptOutcome);
+        if (hasReceiptIssues) {
             status.clearFailureReasons();
             capturePostingLogFailureReasons(jobName, status);
         }
@@ -787,11 +790,11 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         waitForJobsPage();
     }
 
-    private void validateExecutionData(String executionStatus, String dateTime, String jobName, JobStatus status) {
-        if (executionStatus == null || executionStatus.isBlank() || "No Status".equals(executionStatus)) {
+private void validateExecutionData(String executionStatus, String dateTime, String jobName, JobStatus status) {
+        if (executionStatus == null || executionStatus.isBlank()) {
             status.setValidationMessage("Execution status could not be determined for " + jobName);
         }
-        if ("NOT CAPTURED".equals(dateTime)) {
+        if ("N/A".equals(dateTime) || "NOT CAPTURED".equals(dateTime)) {
             String existing = status.getValidationMessage();
             String msg = "Execution end date/time could not be captured for " + jobName;
             status.setValidationMessage((existing == null ? "" : existing + "; ") + msg);
@@ -801,18 +804,29 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
     }
 
-    private boolean isFailedStatus(String status) {
-        return status != null && status.trim().toUpperCase(Locale.ROOT).contains("FAIL");
+private boolean isFailedStatus(String status) {
+        if (status == null) return false;
+        String normalized = status.trim().toUpperCase(Locale.ROOT).replace(" ", "_");
+        return normalized.contains("FAIL") || normalized.equals("FAILED");
     }
 
-    private boolean isPartialSuccessStatus(String status) {
-        return status != null && status.trim().equalsIgnoreCase("PARTIALLY_SUCCESSFUL");
+private boolean isPartialSuccessStatus(String status) {
+        if (status == null) return false;
+        String normalized = status.trim().toUpperCase(Locale.ROOT).replace(" ", "_");
+        return normalized.equals("PARTIALLY_SUCCESSFUL");
     }
 
-    private boolean normalizeReceiptPostingSummary(String reason, JobStatus status) {
+private boolean normalizeReceiptPostingSummary(String reason, JobStatus status) {
         String text = clean(reason);
         Matcher matcher = RECEIPT_POSTING_FAILURE.matcher(text);
         if (!matcher.matches()) {
+            // Check for success message
+            Matcher successMatcher = RECEIPT_POSTING_SUCCESS.matcher(text);
+            if (successMatcher.matches()) {
+                int total = Integer.parseInt(successMatcher.group(1));
+                System.out.println("[RECEIPT OUTCOME] Successfully posted all receipts: Total=" + total);
+                return false;
+            }
             return false;
         }
 
@@ -823,9 +837,9 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         if (failed != status.getFailedCount()) {
             status.setValidationMessage(
-                "Receipt count mismatch: receipt API reports " + status.getFailedCount()
-                + " FAILED record(s), while the job execution summary reports " + failed
-                + " FAILED record(s). The receipt API count is retained as authoritative."
+                    "Receipt count mismatch: receipt API reports " + status.getFailedCount()
+                    + " FAILED record(s), while the job execution summary reports " + failed
+                    + " FAILED record(s). The receipt API count is retained as authoritative."
             );
         }
 
@@ -834,7 +848,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 + ", Partially Success=" + partial + ", Failed=" + failed
                 + ". Checking PostingLogs for receipt-level failure reasons.");
 
-        return failed > 0;
+        return failed > 0 || partial > 0;
     }
 
     private void capturePostingLogFailureReasons(String jobName, JobStatus status) {
@@ -885,7 +899,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     List<WebElement> cells = row.findElements(By.xpath("./td"));
                     if (cells.size() < 7) continue;
 
-                    String receiptStatus = clean(cells.get(5).getText());
+String receiptStatus = clean(cells.get(5).getText());
                     String reason = clean(cells.get(6).getText());
                     String failureCode = cells.size() > 7 ? clean(cells.get(7).getText()) : "";
 
@@ -894,9 +908,12 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                         continue;
                     }
 
-                    if (!reason.isBlank() && (receiptStatus.isBlank()
-                            || receiptStatus.toUpperCase(Locale.ROOT).contains("FAIL")
-                            || failureCode.length() > 0)) {
+                    String upperStatus = receiptStatus.toUpperCase(Locale.ROOT).replace(" ", "_");
+                    boolean isProblematic = !reason.isBlank() && (receiptStatus.isBlank()
+                            || upperStatus.contains("FAIL")
+                            || upperStatus.contains("PARTIAL_SUCCESSFUL")
+                            || failureCode.length() > 0);
+                    if (isProblematic) {
                         reasons.add(trimReason(failureCode.isBlank() ? reason : reason + " | Failure Code: " + failureCode));
                         foundReason = true;
                     }
@@ -986,9 +1003,9 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
     }
 
-    private static final Pattern STATUS_LINE = Pattern.compile(
+private static final Pattern STATUS_LINE = Pattern.compile(
             "(?i)^(success(?:ful(?:ly)?)?|completed(?: successfully)?|succeeded|failed|failure|"
-                    + "partially failed|processing|running|in progress|aborted|cancelled|canceled|skipped)$");
+                    + "partially[_\s]failed|partially[_\s]successful|processing|running|in progress|aborted|cancelled|canceled|skipped)$");
 
     private String readStatusFromModalText(String modalText) {
         if (modalText == null || modalText.isBlank()) return "";

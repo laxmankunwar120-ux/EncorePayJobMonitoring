@@ -85,62 +85,47 @@ public final class GoogleChatNotifier {
         int unmonitoredCount = countClientFailures(clientFailures);
         int monitoredClients = totalClients - unmonitoredCount;
 
-        Map<String, ClientSummary> clientSummaries = buildClientSummaries(jobs);
-        Map<String, Map<String, Integer>> receiptFailuresByClient = buildReceiptFailureGroups(jobs);
-
-        long totalJobs = jobs.size();
-        long successfulJobs = jobs.stream().filter(GoogleChatNotifier::isSuccessful).count();
-        long failedJobs = jobs.stream().filter(GoogleChatNotifier::isFailed).count();
-        long notRunJobs = jobs.stream().filter(GoogleChatNotifier::isNotRun).count();
+        String reportTime = LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME);
 
         StringBuilder message = new StringBuilder();
 
-        message.append("ENCOREPAY JOB MONITORING\n\n");
-        message.append("📅 ").append(LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME)).append("\n");
-        message.append("👥 Clients Monitored: ").append(monitoredClients).append("\n\n");
+        message.append("ENCOREPAY JOB MONITORING REPORT\n");
+        message.append("Run Date : ").append(reportTime).append("\n");
+        message.append("Clients  : ").append(totalClients).append("\n\n");
 
-        message.append("📊 EXECUTION SUMMARY\n\n");
-        message.append("✅ Successful Jobs : ").append(successfulJobs).append("\n");
-        message.append("❌ Failed Jobs     : ").append(failedJobs).append("\n");
-        message.append("⚠️ Not Run        : ").append(notRunJobs).append("\n");
-        message.append("📋 Total Jobs     : ").append(totalJobs).append("\n\n");
+        message.append("SUMMARY\n");
+        message.append("Total Clients            : ").append(totalClients).append("\n");
 
-        if (!clientSummaries.isEmpty()) {
-            message.append("🏢 CLIENT STATUS\n\n");
-            for (Map.Entry<String, ClientSummary> entry : clientSummaries.entrySet()) {
-                ClientSummary summary = entry.getValue();
-                String emoji = getClientEmoji(summary);
-                message.append(emoji).append(" ").append(entry.getKey()).append("\n");
-                message.append("   Jobs    : ").append(summary.totalJobs).append("\n");
-                message.append("   Success : ").append(summary.successful).append("\n");
-                message.append("   Failed  : ").append(summary.failed).append("\n");
-                if (summary.notRun > 0) {
-                    message.append("   Not Run : ").append(summary.notRun).append("\n");
-                }
-                message.append("\n");
-            }
+        long successfulJobs = jobs.stream().filter(j -> isSuccessful(j.getStatus())).count();
+        long failedJobs = jobs.stream().filter(j -> isFailed(j.getStatus())).count();
+        long partialSuccessJobs = jobs.stream().filter(j -> isPartialSuccess(j.getStatus())).count();
+        long notRunJobs = jobs.stream().filter(j -> isNotRun(j.getStatus())).count();
+
+        message.append("Successful Jobs          : ").append(successfulJobs).append("\n");
+        if (failedJobs > 0) {
+            message.append("Failed Jobs              : ").append(failedJobs).append("\n");
+        }
+        if (partialSuccessJobs > 0) {
+            message.append("Partial Success Jobs     : ").append(partialSuccessJobs).append("\n");
+        }
+        if (notRunJobs > 0) {
+            message.append("Not Run Jobs             : ").append(notRunJobs).append("\n");
         }
 
-        if (!receiptFailuresByClient.isEmpty()) {
-            message.append("🔴 RECEIPT FAILURE REASONS\n\n");
-            for (Map.Entry<String, Map<String, Integer>> entry : receiptFailuresByClient.entrySet()) {
-                String client = entry.getKey();
-                Map<String, Integer> reasons = entry.getValue();
-                int totalFailures = reasons.values().stream().mapToInt(Integer::intValue).sum();
-                message.append("🔴 ").append(client).append(" — ").append(totalFailures).append(" failures\n");
-                for (Map.Entry<String, Integer> reasonEntry : reasons.entrySet()) {
-                    message.append("• ").append(reasonEntry.getKey()).append(" — ").append(reasonEntry.getValue()).append("\n");
-                }
-                message.append("Total: ").append(totalFailures).append("\n\n");
-            }
-        }
+        message.append("\n");
+
+        message.append(buildJobSection(jobs, POST_RECEIPTS, true));
+        message.append(buildJobSection(jobs, COLLECTIONS, false));
+        message.append(buildJobSection(jobs, UPCOMING, false));
+
+        message.append(buildReceiptFailureSection(jobs));
 
         if (clientFailures != null && !clientFailures.isEmpty()) {
-            message.append("⚠️ AUTOMATION / ACCESS ISSUES\n\n");
+            message.append("CLIENT FAILURES\n");
             for (String failure : clientFailures) {
                 if (failure != null && !failure.isBlank()) {
                     String cleanMsg = extractClientFailureMessage(failure);
-                    message.append("⚠️ ").append(cleanMsg).append("\n");
+                    message.append(cleanMsg).append("\n");
                 }
             }
             message.append("\n");
@@ -148,24 +133,78 @@ public final class GoogleChatNotifier {
 
         appendReportLinks(message, htmlReportPath);
 
-        String overallStatus = calculateOverallStatus(successfulJobs, failedJobs, notRunJobs, unmonitoredCount);
-        message.append(overallStatus);
-
         return message.toString();
     }
 
-    private static Map<String, ClientSummary> buildClientSummaries(List<JobStatus> jobs) {
-        Map<String, ClientSummary> summaries = new LinkedHashMap<>();
-        for (JobStatus job : jobs) {
-            String client = safe(job.getClientName());
-            if (client.isBlank()) continue;
-            ClientSummary summary = summaries.computeIfAbsent(client, k -> new ClientSummary());
-            summary.totalJobs++;
-            if (isSuccessful(job.getStatus())) summary.successful++;
-            else if (isFailed(job.getStatus())) summary.failed++;
-            else if (isNotRun(job.getStatus())) summary.notRun++;
+    private static String buildJobSection(List<JobStatus> jobs, String jobName, boolean includeCounts) {
+        List<JobStatus> jobList = jobs.stream()
+                .filter(j -> jobName.equalsIgnoreCase(j.getJobName()))
+                .toList();
+
+        if (jobList.isEmpty()) return "";
+
+        String title = switch (jobName) {
+            case "Post Receipts Job" -> "1. POST RECEIPTS JOB";
+            case "Encore Download Collection Items Job" -> "2. DOWNLOAD COLLECTION ITEMS JOB";
+            case "Encore Up Coming Demands Job" -> "3. UPCOMING DEMAND JOB";
+            default -> jobName.toUpperCase();
+        };
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(title).append("\n");
+
+        if (includeCounts) {
+            sb.append(String.format("%-20s %-12s %-8s %-8s %s\n",
+                    center("Client", 20), center("Status", 12), center("Failed", 8), center("Pending", 8), "End Date/Time"));
+            sb.append("-".repeat(70)).append("\n");
+        } else {
+            sb.append(String.format("%-20s %-12s %s\n",
+                    center("Client", 20), center("Status", 12), "Start/End Date/Time"));
+            sb.append("-".repeat(60)).append("\n");
         }
-        return summaries;
+
+        for (JobStatus job : jobList) {
+            String client = safe(job.getClientName());
+            if (client.length() > 18) client = client.substring(0, 17) + "…";
+
+            String status = safe(job.getStatus());
+            if (status.length() > 10) status = status.substring(0, 9) + "…";
+
+            String dateTime = safe(job.getDateTime());
+
+            if (includeCounts) {
+                sb.append(String.format("%-20s %-12s %-8d %-8d %s\n",
+                        client, status, job.getFailedCount(), job.getPendingCount(), dateTime));
+            } else {
+                sb.append(String.format("%-20s %-12s %s\n",
+                        client, status, dateTime));
+            }
+        }
+
+        sb.append("\n");
+        return sb.toString();
+    }
+
+    private static String buildReceiptFailureSection(List<JobStatus> jobs) {
+        Map<String, Map<String, Integer>> receiptFailuresByClient = buildReceiptFailureGroups(jobs);
+        if (receiptFailuresByClient.isEmpty()) return "";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("RECEIPT FAILURE REASONS\n");
+
+        for (Map.Entry<String, Map<String, Integer>> entry : receiptFailuresByClient.entrySet()) {
+            String client = entry.getKey();
+            Map<String, Integer> reasons = entry.getValue();
+            int totalFailures = reasons.values().stream().mapToInt(Integer::intValue).sum();
+            sb.append(client).append(" — ").append(totalFailures).append(" failures\n");
+            for (Map.Entry<String, Integer> reasonEntry : reasons.entrySet()) {
+                String reason = reasonEntry.getKey();
+                if (reason.length() > 60) reason = reason.substring(0, 57) + "…";
+                sb.append("  • ").append(reason).append(" — ").append(reasonEntry.getValue()).append("\n");
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
     }
 
     private static Map<String, Map<String, Integer>> buildReceiptFailureGroups(List<JobStatus> jobs) {
@@ -205,28 +244,6 @@ public final class GoogleChatNotifier {
             }
         }
         return clean;
-    }
-
-    private static String getClientEmoji(ClientSummary summary) {
-        if (summary.failed > 0) return "🔴";
-        if (summary.notRun > 0) return "🟡";
-        return "🟢";
-    }
-
-    private static String calculateOverallStatus(long successful, long failed, long notRun, int unmonitored) {
-        if (failed > 0) {
-            return "🔴 STATUS: MONITORING COMPLETED — JOB FAILURES DETECTED";
-        }
-        if (notRun > 0) {
-            return "🟡 STATUS: MONITORING COMPLETED — SOME JOBS NOT RUN";
-        }
-        if (unmonitored > 0) {
-            return "🟡 STATUS: MONITORING COMPLETED — ATTENTION REQUIRED (Unmonitored: " + unmonitored + ")";
-        }
-        if (successful > 0) {
-            return "🟢 STATUS: MONITORING COMPLETED — ALL JOBS SUCCESSFUL";
-        }
-        return "🔴 STATUS: MONITORING FAILED — NO RESULTS";
     }
 
     private static int countClientFailures(List<String> clientFailures) {
@@ -294,10 +311,11 @@ public final class GoogleChatNotifier {
     }
 
     private static boolean isSuccessful(String status) {
-        String value = safe(status).toUpperCase(Locale.ROOT);
+        String value = safe(status).toUpperCase(Locale.ROOT).replace(" ", "_");
         return value.contains("SUCCESS")
                 || value.contains("COMPLETED")
-                || value.equals("SUCCEEDED");
+                || value.equals("SUCCEEDED")
+                || value.equals("PARTIALLY_SUCCESSFUL");
     }
 
     private static boolean isFailed(JobStatus status) {
@@ -305,7 +323,8 @@ public final class GoogleChatNotifier {
     }
 
     private static boolean isFailed(String status) {
-        return safe(status).toUpperCase(Locale.ROOT).contains("FAIL");
+        String value = safe(status).toUpperCase(Locale.ROOT).replace(" ", "_");
+        return value.contains("FAIL") && !value.contains("PARTIAL");
     }
 
     private static boolean isNotRun(JobStatus status) {
@@ -315,6 +334,11 @@ public final class GoogleChatNotifier {
     private static boolean isNotRun(String status) {
         String value = safe(status).toUpperCase(Locale.ROOT);
         return value.equals("N/A") || value.equals("NOT CAPTURED") || value.isBlank();
+    }
+
+    private static boolean isPartialSuccess(String status) {
+        String value = safe(status).toUpperCase(Locale.ROOT).replace(" ", "_");
+        return value.equals("PARTIALLY_SUCCESSFUL");
     }
 
     private static String safe(String value) {
@@ -327,10 +351,19 @@ public final class GoogleChatNotifier {
         return text.substring(0, Math.max(0, maxLength - 3)).trim() + "...";
     }
 
+    private static String center(String text, int width) {
+        String t = safe(text);
+        if (t.length() >= width) return t;
+        int leftPad = (width - t.length()) / 2;
+        int rightPad = width - t.length() - leftPad;
+        return " ".repeat(leftPad) + t + " ".repeat(rightPad);
+    }
+
     private static class ClientSummary {
         int totalJobs = 0;
         int successful = 0;
         int failed = 0;
+        int partialSuccess = 0;
         int notRun = 0;
     }
 }
