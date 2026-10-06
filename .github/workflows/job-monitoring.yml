@@ -93,8 +93,8 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Install Maven and Xvfb
-        run: sudo apt-get update && sudo apt-get install -y maven xvfb
+      - name: Install Maven
+        run: sudo apt-get update && sudo apt-get install -y maven
 
       - name: Verify configuration
         run: |
@@ -137,14 +137,13 @@ jobs:
           done
 
       - name: Run job monitoring
-        run: |
-          xvfb-run -a mvn -B clean test \
-            -DrunMode=multiple \
-            -Dbrowser=chrome \
-            -Dheadless=false \
-            -DexplicitWait=45 \
-            -DbootTimeout=150 \
-            -DbusinessZone=Asia/Kolkata
+        # headless is forced on: a CI runner has no display.
+        # runMode/browser/headless are read as system properties, so they are passed
+        # with -D rather than as env vars.
+        # businessZone pins both the browser and the Java-side date logic to the reporting
+        # timezone. GitHub runners are UTC, so without it the application renders every job
+        # timestamp 5:30 earlier than a workstation in Asia/Kolkata.
+        run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=45 -DbootTimeout=150 -DbusinessZone=Asia/Kolkata
 
       - name: Check HTML report
         if: always()
