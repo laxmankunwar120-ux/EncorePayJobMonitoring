@@ -341,6 +341,54 @@ public final class GoogleChatNotifier {
         }
     }
 
+    private static int countClientFailures(List<String> clientFailures) {
+        if (clientFailures == null) {
+            return 0;
+        }
+
+        return (int) clientFailures.stream()
+                .filter(failure -> failure != null && !failure.isBlank())
+                .count();
+    }
+
+    private static void appendClientFailures(StringBuilder message, List<String> clientFailures) {
+        if (clientFailures == null || clientFailures.isEmpty()) {
+            return;
+        }
+
+        message.append("CLIENT FAILURES\n");
+
+        for (String failure : clientFailures) {
+            if (failure != null && !failure.isBlank()) {
+                message.append("- ")
+                        .append(cleanReason(failure))
+                        .append("\n");
+            }
+        }
+
+        message.append("\n");
+    }
+
+    private static void appendReportLink(StringBuilder message) {
+        String server = System.getenv("GITHUB_SERVER_URL");
+        String repository = System.getenv("GITHUB_REPOSITORY");
+        String runId = System.getenv("GITHUB_RUN_ID");
+
+        if (server == null || server.isBlank()
+                || repository == null || repository.isBlank()
+                || runId == null || runId.isBlank()) {
+            return;
+        }
+
+        message.append("GitHub Actions Run : ")
+                .append(server.trim())
+                .append("/")
+                .append(repository.trim())
+                .append("/actions/runs/")
+                .append(runId.trim())
+                .append("\n\n");
+    }
+
     private static boolean hasTechnicalFailure(JobStatus status) {
         return status != null
                 && !safe(status.getJobFailureReason()).isBlank()
