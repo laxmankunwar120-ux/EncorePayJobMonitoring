@@ -373,6 +373,27 @@ public class ConfigReader {
             : env.trim();
     }
 
+    public String getGoogleChatOAuthClientId() {
+        String env = System.getenv("GOOGLE_CHAT_OAUTH_CLIENT_ID");
+        return env == null || env.isBlank()
+            ? getProperty("googleChatOAuthClientId", "")
+            : env.trim();
+    }
+
+    public String getGoogleChatOAuthClientSecret() {
+        String env = System.getenv("GOOGLE_CHAT_OAUTH_CLIENT_SECRET");
+        return env == null || env.isBlank()
+            ? getProperty("googleChatOAuthClientSecret", "")
+            : env.trim();
+    }
+
+    public String getGoogleChatOAuthRefreshToken() {
+        String env = System.getenv("GOOGLE_CHAT_OAUTH_REFRESH_TOKEN");
+        return env == null || env.isBlank()
+            ? getProperty("googleChatOAuthRefreshToken", "")
+            : env.trim();
+    }
+
     public boolean isEmailNotificationEnabled() {
         String env = System.getenv("REPORT_EMAIL_ENABLED");
         return env == null || env.isBlank()
