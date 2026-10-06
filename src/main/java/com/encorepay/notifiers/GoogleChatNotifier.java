@@ -268,11 +268,16 @@ public final class GoogleChatNotifier {
         String server = System.getenv("GITHUB_SERVER_URL");
         String repository = System.getenv("GITHUB_REPOSITORY");
         String runId = System.getenv("GITHUB_RUN_ID");
+        String reportUrl = System.getenv("REPORT_URL");
 
         message.append("📁 REPORTS\n\n");
 
+        if (reportUrl != null && !reportUrl.isBlank()) {
+            message.append("📄 Direct Report: ").append(reportUrl.trim()).append("\n");
+        }
+
         if (htmlReportPath != null && !htmlReportPath.isBlank()) {
-            message.append("📄 HTML Report: ").append(htmlReportPath).append("\n");
+            message.append("📄 HTML Report (local): ").append(htmlReportPath).append("\n");
         }
 
         if (server != null && !server.isBlank()
