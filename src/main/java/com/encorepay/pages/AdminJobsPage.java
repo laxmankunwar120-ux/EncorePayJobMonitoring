@@ -119,6 +119,10 @@ public class AdminJobsPage extends BasePage {
     private static final By EXECUTION_MODAL = By.xpath("//div[contains(@class,'modal-wrapper')][.//div[contains(@class,'list-label') and normalize-space()='Job Name']]");
     private static final By EXECUTION_MODAL_SCROLL = By.cssSelector("div.absolute.overflow-auto, div.overflow-auto.absolute, div.overflow-auto");
     private static final By EXECUTION_MODAL_CLOSE = By.xpath("//div[contains(@class,'modal-wrapper')]//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]");
+    private static final By POSTING_LOGS_ACTION = By.xpath("//app-job-details//button[normalize-space()='PostingLogs']");
+    private static final By POSTING_LOGS_MODAL = By.xpath("//div[contains(@class,'modal-wrapper')][.//span[contains(normalize-space(),'Receipt Posting Logs')] or .//h1[contains(normalize-space(),'Receipt Posting Logs')]]");
+    private static final By POSTING_LOG_ROWS = By.cssSelector("app-receipt-posting-log app-custom-table table.table-box tbody tr, app-custom-table table.table-box tbody tr");
+    private static final By POSTING_LOG_NEXT_PAGE = By.cssSelector("app-receipt-posting-log div.paginator-container button[aria-label='Next page'], app-receipt-posting-log button[aria-label*='Next page']");
 
     /**
  * The paginator label reads "N - M of T", but the range separator is rendered as an en dash, so a
@@ -740,27 +744,32 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         status.setDateTime(dateTime);
 
         boolean partialReceiptOutcome = isPartialSuccessStatus(executionStatus);
-        if (isFailedStatus(executionStatus) || partialReceiptOutcome) {
-            String jobFailureReason = waitForModalField(modal, "Reason");
+        boolean inspectReason = JOB_POST_RECEIPTS.equalsIgnoreCase(jobName)
+                || isFailedStatus(executionStatus)
+                || partialReceiptOutcome;
+
+        String jobFailureReason = "";
+        if (inspectReason) {
+            jobFailureReason = waitForModalField(modal, "Reason");
             if (jobFailureReason.isBlank()) {
                 jobFailureReason = readReasonFromModalText(modal.getText());
             }
+        }
 
-            if (normalizeReceiptPostingSummary(jobFailureReason, status)) {
-                executionStatus = "SUCCESSFUL";
-                status.setStatus(executionStatus);
-                if (status.getJobFailureReason() != null
-                        && status.getJobFailureReason().equalsIgnoreCase(jobFailureReason)) {
-                    status.setJobFailureReason(null);
-                }
-            } else if (!jobFailureReason.isBlank() && isFailedStatus(executionStatus)) {
-                status.setJobFailureReason(jobFailureReason);
-            } else if (isFailedStatus(executionStatus)) {
-                System.out.println("[WARN] Job status is FAILED but Reason could not be captured for " + jobName + ".");
-            }
+        boolean receiptPostingFailure = normalizeReceiptPostingSummary(jobFailureReason, status);
+
+        if (!jobFailureReason.isBlank() && isFailedStatus(executionStatus) && !receiptPostingFailure) {
+            status.setJobFailureReason(jobFailureReason);
+        } else if (isFailedStatus(executionStatus) && jobFailureReason.isBlank()) {
+            System.out.println("[WARN] Job status is FAILED but Reason could not be captured for " + jobName + ".");
         }
 
         closeExecutionModalUsingUi();
+
+        if (receiptPostingFailure && status.getFailedCount() > 0) {
+            capturePostingLogFailureReasons(jobName, status);
+        }
+
         closeJobDetailsUsingUi();
         waitForJobsPage();
     }
@@ -789,14 +798,143 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             status.setFailedCount(failed);
         }
 
-        status.addFailureReason(text);
-
         System.out.println("[RECEIPT OUTCOME] Receipt Posting Failure summary detected: "
                 + "Total=" + total + ", Success=" + success
                 + ", Partially Success=" + partial + ", Failed=" + failed
-                + ". Treating the completed job as SUCCESSFUL.");
+                + ". Checking PostingLogs for receipt-level failure reasons.");
 
-        return true;
+        return failed > 0;
+    }
+
+    private void capturePostingLogFailureReasons(String jobName, JobStatus status) {
+        if (!JOB_POST_RECEIPTS.equalsIgnoreCase(jobName)) {
+            return;
+        }
+
+        WebElement postingLogs = visibleElement(POSTING_LOGS_ACTION);
+        if (postingLogs == null) {
+            status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs action was not available.");
+            return;
+        }
+
+        try {
+            scrollIntoView(postingLogs);
+            clickAndWait(postingLogs);
+            WebElement modal = wait.until(d -> {
+                List<WebElement> modals = d.findElements(POSTING_LOGS_MODAL);
+                for (int i = modals.size() - 1; i >= 0; i--) {
+                    if (isDisplayed(modals.get(i))) return modals.get(i);
+                }
+                return null;
+            });
+
+            Set<String> reasons = new LinkedHashSet<>();
+            Set<String> pages = new LinkedHashSet<>();
+
+            while (true) {
+                String range = readPostingLogRange();
+                if (!range.isBlank() && !pages.add(range)) {
+                    break;
+                }
+
+                List<WebElement> rows = driver.findElements(POSTING_LOG_ROWS);
+                boolean foundReason = false;
+
+                for (WebElement row : rows) {
+                    if (!isDisplayed(row)) continue;
+                    List<WebElement> cells = row.findElements(By.xpath("./td"));
+                    if (cells.size() < 7) continue;
+
+                    String receiptStatus = clean(cells.get(5).getText());
+                    String reason = clean(cells.get(6).getText());
+                    String failureCode = cells.size() > 7 ? clean(cells.get(7).getText()) : "";
+
+                    if (!reason.isBlank() && (receiptStatus.isBlank()
+                            || receiptStatus.toUpperCase(Locale.ROOT).contains("FAIL")
+                            || failureCode.length() > 0)) {
+                        reasons.add(failureCode.isBlank() ? reason : reason + " [" + failureCode + "]");
+                        foundReason = true;
+                    }
+                }
+
+                if (!foundReason && rows.isEmpty()) {
+                    status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs returned no receipt records.");
+                }
+
+                WebElement next = visibleElement(POSTING_LOG_NEXT_PAGE);
+                if (next == null || !next.isEnabled()) {
+                    break;
+                }
+
+                String before = range;
+                clickAndWait(next);
+                try {
+                    wait.until(d -> {
+                        String after = readPostingLogRange();
+                        return !after.isBlank() && !after.equals(before);
+                    });
+                } catch (RuntimeException e) {
+                    break;
+                }
+            }
+
+            for (String reason : reasons) {
+                status.addFailureReason(reason);
+            }
+
+            if (!reasons.isEmpty()) {
+                status.setJobFailureReason(null);
+            } else if (status.getJobFailureReason() == null || status.getJobFailureReason().isBlank()) {
+                status.setJobFailureReason("Receipt Posting Failure detected, but no receipt-level failure reason was available in PostingLogs.");
+            }
+
+            closePostingLogsModal();
+        } catch (Exception e) {
+            status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs could not be captured: "
+                    + e.getClass().getSimpleName() + ": " + safeText(e));
+            closePostingLogsModal();
+        }
+    }
+
+    private String readPostingLogRange() {
+        try {
+            WebElement range = visibleElement(By.cssSelector(
+                    "app-receipt-posting-log div.paginator-container .ct-range, "
+                    + "app-receipt-posting-log .ct-range, "
+                    + "app-receipt-posting-log mat-paginator .mat-mdc-paginator-range-label, "
+                    + "app-receipt-posting-log mat-paginator .mat-paginator-range-label"));
+            return range == null ? "" : clean(range.getText());
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void closePostingLogsModal() {
+        try {
+            List<WebElement> modals = driver.findElements(POSTING_LOGS_MODAL);
+            for (int i = modals.size() - 1; i >= 0; i--) {
+                WebElement modal = modals.get(i);
+                if (!isDisplayed(modal)) continue;
+
+                WebElement close = visibleInside(modal, By.xpath(".//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]"));
+                if (close != null) {
+                    try {
+                        clickAndWait(close);
+                    } catch (Exception e) {
+                        jsClick(close);
+                    }
+                }
+                break;
+            }
+
+            wait.until(d -> d.findElements(POSTING_LOGS_MODAL).stream().noneMatch(this::isDisplayed));
+        } catch (Exception e) {
+            try {
+                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
+                awaitUiStability();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     private static final Pattern STATUS_LINE = Pattern.compile(
