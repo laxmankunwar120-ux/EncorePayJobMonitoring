@@ -2,9 +2,8 @@ name: EncorePay Job Monitoring
 
 on:
   schedule:
-    # TEST: 8:20 PM IST
-    - cron: "20 20 * * *"
-      timezone: "Asia/Kolkata"
+    # TEST: 8:40 PM IST (15:10 UTC)
+    - cron: "10 15 * * *"
 
     # 10:00 PM IST
     - cron: "0 22 * * *"
