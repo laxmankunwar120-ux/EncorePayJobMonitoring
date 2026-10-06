@@ -48,10 +48,10 @@ public final class GoogleChatNotifier {
     private static final Pattern TIMEOUT_ERROR =
             Pattern.compile("(?i)TimeoutException.*?(?:\\(tried for ([^)]+)\\))?");
 
-    private static final int MAX_REASON_LENGTH = 600;
-    private static final int MAX_CLIENT_LENGTH = 24;   // caps column growth as client count scales up
-    private static final int MAX_STATUS_LENGTH = 14;
-    private static final int MAX_DATETIME_LENGTH = 18;
+private static final int MAX_REASON_LENGTH = 600;
+    private static final int MAX_CLIENT_LENGTH = 20;
+    private static final int MAX_STATUS_LENGTH = 12;
+    private static final int MAX_DATETIME_LENGTH = 16;
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
@@ -115,10 +115,10 @@ public final class GoogleChatNotifier {
 
         StringBuilder message = new StringBuilder();
 
-        message.append("ENCOREPAY JOB MONITORING REPORT\n")
-                .append("Run Date : ")
+        message.append("📊 *ENCOREPAY JOB MONITORING REPORT*\n")
+                .append("🕐 Run: ")
                 .append(LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME))
-                .append("\nClients  : ")
+                .append("\n👥 Clients: ")
                 .append(clients)
                 .append("\n\n");
 
@@ -135,74 +135,39 @@ public final class GoogleChatNotifier {
         return message.toString();
     }
 
-    private static void appendSummary(StringBuilder message, int clients,
-                                      long successful, long failed) {
-        message.append("SUMMARY\n```\n")
-                .append(String.format("%-24s : %d\n", "Total Clients", clients))
-                .append(String.format("%-24s : %d\n", "Successful Jobs", successful))
-                .append(String.format("%-24s : %d\n", "Failed Jobs", failed))
-                .append("```\n\n");
+private static void appendSummary(StringBuilder message, int clients,
+                                       long successful, long failed) {
+        message.append("*SUMMARY*\n")
+                .append("📊 Total Clients: `").append(clients).append("`\n")
+                .append("✅ Successful: `").append(successful).append("`\n")
+                .append("❌ Failed: `").append(failed).append("`\n\n");
     }
 
 
     private enum Align { LEFT, RIGHT }
 
-    /** Renders a heading + fenced table whose column widths are derived from the actual
-     *  header and row content, so header/rows can never drift out of alignment. */
+    /** Mobile-friendly line-based format (no code-block tables). */
     private static void appendTable(StringBuilder message, String heading,
                                      String[] headers, Align[] aligns, List<String[]> rows) {
         if (rows.isEmpty()) {
             return;
         }
 
-        int[] widths = new int[headers.length];
-        for (int i = 0; i < headers.length; i++) {
-            widths[i] = headers[i].length();
-        }
-        for (String[] row : rows) {
-            for (int i = 0; i < row.length; i++) {
-                widths[i] = Math.max(widths[i], row[i].length());
-            }
-        }
-
         if (heading != null) {
-            message.append(heading).append("\n");
+            message.append("*").append(heading).append("*\n");
         }
-        message.append("```\n");
-        message.append(formatRow(headers, widths, aligns)).append("\n");
-
-        int totalWidth = -2; // no trailing separator after the last column
-        for (int w : widths) {
-            totalWidth += w + 2;
-        }
-        message.append("-".repeat(Math.max(1, totalWidth))).append("\n");
 
         for (String[] row : rows) {
-            message.append(formatRow(row, widths, aligns)).append("\n");
-        }
-        message.append("```\n\n");
-    }
-
-    private static String formatRow(String[] cols, int[] widths, Align[] aligns) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < cols.length; i++) {
-            String cell = aligns[i] == Align.RIGHT
-                    ? padLeft(cols[i], widths[i])
-                    : padRight(cols[i], widths[i]);
-            sb.append(cell);
-            if (i < cols.length - 1) {
-                sb.append("  "); // two-space gutter between every column, always
+            StringBuilder line = new StringBuilder();
+            for (int i = 0; i < row.length; i++) {
+                String label = headers[i];
+                String value = row[i];
+                if (i > 0) line.append("  •  ");
+                line.append("`").append(label).append(":` ").append(value);
             }
+            message.append(line).append("\n");
         }
-        return sb.toString();
-    }
-
-    private static String padRight(String value, int width) {
-        return value.length() >= width ? value : value + " ".repeat(width - value.length());
-    }
-
-    private static String padLeft(String value, int width) {
-        return value.length() >= width ? value : " ".repeat(width - value.length()) + value;
+        message.append("\n");
     }
 
 
@@ -215,14 +180,15 @@ public final class GoogleChatNotifier {
             return;
         }
 
-        String[] headers = {"Client", "Status", "Failed", "Pending", "End Date/Time"};
+        String[] headers = {"Client", "Status", "Failed", "Pending", "End Time"};
         Align[] aligns = {Align.LEFT, Align.LEFT, Align.RIGHT, Align.RIGHT, Align.LEFT};
 
         List<String[]> rows = new ArrayList<>();
         for (JobStatus status : records) {
+            String statusEmoji = getStatusEmoji(status.getStatus());
             rows.add(new String[] {
                     abbreviate(safe(status.getClientName()), MAX_CLIENT_LENGTH),
-                    displayStatus(status.getStatus()),
+                    statusEmoji + " " + displayStatus(status.getStatus()),
                     String.valueOf(status.getFailedCount()),
                     String.valueOf(status.getPendingCount()),
                     abbreviate(formatDateTime(status.getDateTime()), MAX_DATETIME_LENGTH)
@@ -235,7 +201,7 @@ public final class GoogleChatNotifier {
         for (JobStatus status : records) {
             String validation = safe(status.getValidationMessage());
             if (!validation.isBlank()) {
-                message.append("VALIDATION WARNING - ")
+                message.append("⚠️ *VALIDATION* - ")
                         .append(safe(status.getClientName()))
                         .append(": ")
                         .append(abbreviate(validation, MAX_REASON_LENGTH))
@@ -243,6 +209,17 @@ public final class GoogleChatNotifier {
             }
         }
         message.append("\n");
+    }
+
+    private static String getStatusEmoji(String status) {
+        if (status == null) return "❓";
+        String s = status.toUpperCase(Locale.ROOT);
+        if (s.contains("SUCCESS") || s.contains("COMPLETED") || s.equals("SUCCEEDED")) return "✅";
+        if (s.contains("FAIL")) return "❌";
+        if (s.contains("PARTIAL")) return "⚠️";
+        if (s.contains("RUNNING") || s.contains("PROGRESS") || s.contains("EXECUTION")) return "🔄";
+        if (s.equals("N/A")) return "⏭️";
+        return "❓";
     }
 
     private static void appendReceiptReasons(StringBuilder message, List<JobStatus> records) {
@@ -276,20 +253,18 @@ public final class GoogleChatNotifier {
             return;
         }
 
-        message.append("FAILED RECEIPT REASONS\n");
+        message.append("📋 *FAILED RECEIPT REASONS*\n");
 
         for (Map.Entry<String, Set<String>> entry : reasonsByClient.entrySet()) {
-            message.append(entry.getKey())
-                    .append(" (")
+            message.append("📍 *").append(entry.getKey()).append("* (")
                     .append(entry.getValue().size())
                     .append(entry.getValue().size() == 1
-                            ? " unique reason)\n"
-                            : " unique reasons)\n");
+                            ? " reason)\n"
+                            : " reasons)\n");
 
             int number = 1;
             for (String reason : entry.getValue()) {
-                message.append("  ")
-                        .append(number++)
+                message.append("   ").append(number++)
                         .append(". ")
                         .append(abbreviate(reason, MAX_REASON_LENGTH))
                         .append("\n");
@@ -309,14 +284,15 @@ public final class GoogleChatNotifier {
             return;
         }
 
-        String[] headers = {"Client", "Status", "Start/End Date/Time"};
+        String[] headers = {"Client", "Status", "End Time"};
         Align[] aligns = {Align.LEFT, Align.LEFT, Align.LEFT};
 
         List<String[]> rows = new ArrayList<>();
         for (JobStatus status : records) {
+            String statusEmoji = getStatusEmoji(status.getStatus());
             rows.add(new String[] {
                     abbreviate(safe(status.getClientName()), MAX_CLIENT_LENGTH),
-                    displayStatus(status.getStatus()),
+                    statusEmoji + " " + displayStatus(status.getStatus()),
                     abbreviate(formatDateTime(status.getDateTime()), MAX_DATETIME_LENGTH)
             });
         }
@@ -333,33 +309,33 @@ public final class GoogleChatNotifier {
             return;
         }
 
-        message.append("TECHNICAL ERRORS\n");
+        message.append("🔧 *TECHNICAL ERRORS*\n");
 
         for (JobStatus status : errors) {
             String reason = safe(status.getJobFailureReason());
             String http = extractHttpError(reason);
             String api = extractApiName(reason);
 
-            message.append("Client : ").append(safe(status.getClientName())).append("\n")
-                    .append("Job    : ").append(safe(status.getJobName())).append("\n");
+            message.append("📍 *").append(safe(status.getClientName())).append("*\n")
+                    .append("   Job: ").append(safe(status.getJobName())).append("\n");
 
             if (!http.isBlank()) {
-                message.append("Error  : ").append(http).append("\n");
+                message.append("   🌐 Error: ").append(http).append("\n");
             }
 
             if (!api.isBlank()) {
-                message.append("API    : ").append(api).append("\n");
+                message.append("   🔗 API: ").append(api).append("\n");
             }
 
             if (http.isBlank() && api.isBlank() && !reason.isBlank()) {
-                message.append("Reason : ")
+                message.append("   📝 Reason: ")
                         .append(abbreviate(cleanReason(reason), MAX_REASON_LENGTH))
                         .append("\n");
             }
 
             String validation = safe(status.getValidationMessage());
             if (!validation.isBlank()) {
-                message.append("Validation : ")
+                message.append("   ⚠️ Validation: ")
                         .append(abbreviate(validation, MAX_REASON_LENGTH))
                         .append("\n");
             }
@@ -383,12 +359,12 @@ public final class GoogleChatNotifier {
             return;
         }
 
-        message.append("CLIENT ACCESS FAILURES\n");
+        message.append("🚫 *CLIENT ACCESS FAILURES*\n");
 
         for (String failure : clientFailures) {
             if (failure != null && !failure.isBlank()) {
                 String cleanMsg = extractClientFailureMessage(failure);
-                message.append("- ").append(cleanMsg).append("\n");
+                message.append("• ").append(cleanMsg).append("\n");
             }
         }
 
