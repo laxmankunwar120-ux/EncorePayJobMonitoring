@@ -2,8 +2,8 @@ name: EncorePay Job Monitoring
 
 on:
   schedule:
-    # TEST: 8:40 PM IST (15:10 UTC)
-    - cron: "10 15 * * *"
+    # TEST: 9:15 PM IST (15:45 UTC)
+    - cron: "45 15 * * *"
 
     # 10:00 PM IST
     - cron: "0 22 * * *"
