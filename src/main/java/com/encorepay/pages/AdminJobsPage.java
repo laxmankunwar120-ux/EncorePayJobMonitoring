@@ -767,6 +767,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         closeExecutionModalUsingUi();
 
         if (receiptPostingFailure && status.getFailedCount() > 0) {
+            status.clearFailureReasons();
             capturePostingLogFailureReasons(jobName, status);
         }
 
@@ -852,7 +853,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     if (!reason.isBlank() && (receiptStatus.isBlank()
                             || receiptStatus.toUpperCase(Locale.ROOT).contains("FAIL")
                             || failureCode.length() > 0)) {
-                        reasons.add(failureCode.isBlank() ? reason : reason + " [" + failureCode + "]");
+                        reasons.add(failureCode.isBlank() ? reason : reason + " | Failure Code: " + failureCode);
                         foundReason = true;
                     }
                 }
