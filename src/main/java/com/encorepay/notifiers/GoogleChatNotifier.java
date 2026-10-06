@@ -72,34 +72,7 @@ public final class GoogleChatNotifier {
             return;
         }
 
-        JsonObject payload = new JsonObject();
-        payload.addProperty("text", buildMessage(statuses, clientFailures, configuredClients, htmlReportPath));
-
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(webhook))
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
-                    .build();
-
-            HttpResponse<String> response =
-                    HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                System.out.println("[INFO] Google Chat notification sent successfully.");
-                return;
-            }
-
-            // A rejected webhook means the report never reached the team, which is a real
-            // failure of this run rather than a detail to log and move past.
-            throw new IllegalStateException("Google Chat returned HTTP " + response.statusCode()
-                    + ": " + abbreviate(response.body(), 300));
-        } catch (Exception e) {
-            System.out.println("[FAIL] Google Chat notification failed: " + e.getMessage());
-            throw e instanceof RuntimeException runtime
-                ? runtime
-                : new IllegalStateException("Google Chat notification failed: " + e.getMessage(), e);
-        }
+        GoogleChatApiNotifier.send(webhook, htmlReportPath, message);
     }
 
     static String buildMessage(List<JobStatus> statuses) {
