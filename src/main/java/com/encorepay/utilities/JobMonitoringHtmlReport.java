@@ -59,6 +59,24 @@ public final class JobMonitoringHtmlReport {
 
     public static String generateCombined(List<JobStatus> statuses, List<String> failures) {
         StringBuilder html = baseHtml();
+
+        // Calculate summary counts
+        int totalClients = (int) statuses.stream()
+                .map(JobStatus::getClientName)
+                .filter(c -> c != null && !c.isBlank())
+                .distinct()
+                .count();
+        int unmonitored = failures == null ? 0 : failures.size();
+        int monitored = Math.max(0, totalClients - unmonitored);
+        long successful = statuses.stream()
+                .filter(s -> s != null && isSuccessful(s.getStatus()))
+                .count();
+        long failed = statuses.stream()
+                .filter(s -> s != null && isFailed(s.getStatus()))
+                .count();
+
+        html.append(buildSummary(totalClients, monitored, successful, failed, unmonitored));
+
         Map<String, List<JobStatus>> grouped = groupByClient(statuses);
 
         // A client that failed before producing any status would otherwise be missing from
@@ -128,11 +146,11 @@ public final class JobMonitoringHtmlReport {
 
     private static void appendRunFailures(StringBuilder html, List<String> failures) {
         html.append("<section>")
-                .append("<h2>Client Run Failures</h2>")
+                .append("<h2>Unmonitored Clients</h2>")
                 .append("<table><thead><tr>")
                 .append("<th>Client</th>")
                 .append("<th>Status</th>")
-                .append("<th>Failure</th>")
+                .append("<th>Reason</th>")
                 .append("</tr></thead><tbody>");
 
         for (String failure : failures) {
@@ -142,7 +160,7 @@ public final class JobMonitoringHtmlReport {
 
             html.append("<tr>")
                     .append("<td class='client-col'>").append(escape(client)).append("</td>")
-                    .append("<td class='failed'>FAILED</td>")
+                    .append("<td class='na'>UNMONITORED</td>")
                     .append("<td class='failure-text'>").append(escape(detail)).append("</td>")
                     .append("</tr>");
         }
@@ -356,6 +374,21 @@ public final class JobMonitoringHtmlReport {
                 .append(buildArtifactLink())
                 .append("</div>")
                 .append("</div>");
+    }
+
+    private static String buildSummary(int totalClients, int monitored, long successful, long failed, int unmonitored) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<div class='summary-box' style='margin:20px 0; padding:16px; background:#f8f9fa; border:1px solid #d0d7de; border-radius:6px;'>")
+                .append("<strong>Summary</strong><br>")
+                .append("Total Clients: ").append(totalClients).append(" | ")
+                .append("Monitored: ").append(monitored).append(" | ")
+                .append("Successful: ").append(successful).append(" | ")
+                .append("Failed: ").append(failed);
+        if (unmonitored > 0) {
+            sb.append(" | Unmonitored: ").append(unmonitored);
+        }
+        sb.append("</div>");
+        return sb.toString();
     }
 
     private static String buildArtifactLink() {
@@ -668,4 +701,17 @@ public final class JobMonitoringHtmlReport {
                 .replace("\"", "&quot;")
                 .replace("'", "&#39;");
     }
+    private static boolean isSuccessful(String status) {
+        if (status == null) return false;
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        return normalized.contains("SUCCESS")
+                || normalized.contains("COMPLETED")
+                || normalized.equals("SUCCEEDED")
+                || normalized.equals("COMPLETED_SUCCESSFULLY");
+    }
+
+    private static boolean isFailed(String status) {
+        return status != null && status.trim().toUpperCase(Locale.ROOT).contains("FAIL");
+    }
+
 }
