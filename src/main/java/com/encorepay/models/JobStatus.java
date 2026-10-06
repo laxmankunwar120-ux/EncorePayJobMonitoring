@@ -64,6 +64,8 @@ public class JobStatus {
 
     public String getJobFailureReason() { return jobFailureReason; }
 
+    public void clearFailureReasons() { failureReasonCounts.clear(); }
+
     public void setJobFailureReason(String jobFailureReason) {
         this.jobFailureReason = jobFailureReason == null ? null : jobFailureReason.trim();
     }
