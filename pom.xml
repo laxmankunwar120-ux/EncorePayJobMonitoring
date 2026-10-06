@@ -14,9 +14,9 @@
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <selenium.version>4.21.0</selenium.version>
+        <selenium.version>4.50.0</selenium.version>
         <testng.version>7.10.2</testng.version>
-        <webdrivermanager.version>5.7.0</webdrivermanager.version>
+        <webdrivermanager.version>6.4.0</webdrivermanager.version>
     </properties>
 
     <dependencies>
