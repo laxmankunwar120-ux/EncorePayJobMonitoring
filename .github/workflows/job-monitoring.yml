@@ -58,7 +58,6 @@ jobs:
       CLIENT_7_USERNAME: ${{ secrets.CLIENT_7_USERNAME }}
       CLIENT_7_PASSWORD: ${{ secrets.CLIENT_7_PASSWORD }}
       CLIENT_7_SSO: ${{ secrets.CLIENT_7_SSO }}
-      CLIENT_7_SSO: ${{ secrets.CLIENT_7_SSO }}
       CLIENT_8_URL: ${{ secrets.CLIENT_8_URL }}
       CLIENT_8_NAME: ${{ secrets.CLIENT_8_NAME }}
       CLIENT_8_USERNAME: ${{ secrets.CLIENT_8_USERNAME }}
