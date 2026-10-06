@@ -157,14 +157,14 @@ final class GoogleChatApiNotifier {
         String metadata = "{\"filename\":\"" + escapeJson(fileName) + "\"}";
         byte[] fileBytes = Files.readAllBytes(report);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        write(out, "--" + boundary + "\\r\\n");
-        write(out, "Content-Type: application/json; charset=UTF-8\\r\\n\\r\\n");
-        write(out, metadata + "\\r\\n");
-        write(out, "--" + boundary + "\\r\\n");
+        write(out, "--" + boundary + "\r\n");
+        write(out, "Content-Type: application/json; charset=UTF-8\r\n\r\n");
+        write(out, metadata + "\r\n");
+        write(out, "--" + boundary + "\r\n");
         write(out, "Content-Disposition: form-data; name=\\"media\\"; filename=\\"" + escapeHeader(fileName) + "\\"\\r\\n");
-        write(out, "Content-Type: text/html; charset=UTF-8\\r\\n\\r\\n");
+        write(out, "Content-Type: text/html; charset=UTF-8\r\n\r\n");
         out.write(fileBytes);
-        write(out, "\\r\\n--" + boundary + "--\\r\\n");
+        write(out, "\r\n--" + boundary + "--\r\n");
         return out.toByteArray();
     }
 
