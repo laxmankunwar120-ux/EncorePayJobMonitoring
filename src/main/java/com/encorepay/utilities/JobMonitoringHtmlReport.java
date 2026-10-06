@@ -436,15 +436,24 @@ public final class JobMonitoringHtmlReport {
     }
 
     private static String failureReason(JobStatus status) {
-        String reason = status.getJobFailureReason();
+        List<String> receiptReasons = status.getFailureReasons() == null
+                ? List.of()
+                : status.getFailureReasons();
 
-        if (reason == null || reason.isBlank()) {
-            reason = status.getFailureReasons() == null
-                    ? ""
-                    : String.join("; ", status.getFailureReasons());
+        String receiptReasonText = String.join("; ", receiptReasons);
+        String jobReason = status.getJobFailureReason() == null
+                ? ""
+                : status.getJobFailureReason().trim();
+
+        if (!receiptReasonText.isBlank() && !jobReason.isBlank()) {
+            return receiptReasonText + " | " + jobReason;
         }
 
-        return reason == null ? "" : reason;
+        if (!receiptReasonText.isBlank()) {
+            return receiptReasonText;
+        }
+
+        return jobReason;
     }
 
     private static void appendFailure(StringBuilder html, String client, String detail) {
