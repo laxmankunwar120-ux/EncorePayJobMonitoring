@@ -65,7 +65,7 @@ public class LoginPage extends BasePage {
             + "[contains(.,'Success') or contains(.,'success')]")
     private List<WebElement> successToasts;
 
-    /** The layout renders its nav only for a signed-in user, and it always holds menu-btn triggers. */
+    
     @FindBy(xpath =
         "//nav[.//button[contains(@class,'menu-btn')]]"
             + " | //button[normalize-space()='Dashboard']"
@@ -424,4 +424,5 @@ private boolean isNormalLoginVisible() {
     }
 }
 }
+
 

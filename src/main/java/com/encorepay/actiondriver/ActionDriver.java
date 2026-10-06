@@ -335,7 +335,7 @@ public class ActionDriver {
         return visible;
     }
 
-    /** Returns the screenshot path so callers can put it in a failure message, or "" on failure. */
+    
     public String captureStep(String label) {
         try {
             waitForUiStable();
@@ -346,10 +346,7 @@ public class ActionDriver {
         }
     }
 
-    /**
-     * Records the business step the run is on, so a later failure can say where it stopped
-     * instead of only reporting that a wait expired.
-     */
+    
     public void markStep(String step) {
         if (step == null || step.isBlank()) return;
         currentStep = step.trim();
@@ -360,10 +357,7 @@ public class ActionDriver {
         return currentStep;
     }
 
-    /**
-     * Builds the diagnostic line attached to a genuine client failure: step, URL, title, page
-     * state and screenshot path. Never throws, so it cannot mask the failure it is describing.
-     */
+    
     public String captureFailure(String reason) {
         StringBuilder detail = new StringBuilder(reason == null ? "Unknown failure." : reason);
 
@@ -530,4 +524,5 @@ public class ActionDriver {
             .trim();
     }
 }
+
 

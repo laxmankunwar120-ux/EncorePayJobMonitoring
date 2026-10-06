@@ -21,11 +21,7 @@ import com.encorepay.utilities.RetryUtils;
 
 public class BasePage {
 
-/**
-     * The application's own header, which the layout renders only for a logged-in user and only
-     * as <nav> containing its menu-btn triggers. A bare //nav would also match unrelated markup
-     * and could make an unauthenticated page look signed in.
-     */
+
     protected static final By APPLICATION_NAVIGATION = By.xpath(
         "//nav[.//button[contains(@class,'menu-btn')]]"
             + " | //button[normalize-space()='Dashboard']"
@@ -324,4 +320,5 @@ public class BasePage {
         }
     }
 }
+
 

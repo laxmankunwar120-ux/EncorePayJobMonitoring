@@ -42,7 +42,7 @@ public class AdminJobsPage extends BasePage {
 
     private static final Map<String, List<String>> JOB_ALIASES = new LinkedHashMap<>();
 
-    /** Fallback for builds without the app-job wrapper; only used while the jobs route is open. */
+    
     private static final By JOB_ROWS_FALLBACK = By.cssSelector("table.table-box tbody tr");
 
     static {
@@ -55,25 +55,21 @@ public class AdminJobsPage extends BasePage {
 
     private static final By JOB_ROWS = By.cssSelector(
             "app-job app-custom-table table.table-box tbody tr, app-job table.table-box tbody tr");
-/**
-     * The Admin menu is opened by mouseover, not by clicking the trigger, so the trigger must be
-     * hovered before the panel exists. This matches the layout template: the button carries
-     * (mouseover)="openMenu(admin)" and the panel is rendered by *ngIf="show".
-     */
+
     private static final By ADMIN_MENU_TRIGGER = By.xpath(
             "//button[contains(@class,'menu-btn') and normalize-space()='Admin']"
                 + " | //a[contains(@class,'menu-btn') and normalize-space()='Admin']"
                 + " | //*[@role='button' and normalize-space()='Admin']");
 
-    /** Full-screen backdrop that only exists while a top-level menu is open. */
+    
     private static final By ADMIN_MENU_OVERLAY = By.xpath(
             "//div[contains(@class,'fixed') and contains(@class,'bg-black') and contains(@style,'z-index')]");
 
-    /** The panel itself. Both the backdrop and the panel close on click-outside and mouseleave. */
+    
     private static final By ADMIN_MENU_PANEL = By.xpath(
             "//div[contains(@class,'bg-gray-100') and contains(@class,'overflow-auto')]");
 
-    /** The Job entry, rendered inside the open panel. Its label is exactly "Job", not "Jobs". */
+    
     private static final By ADMIN_MENU_JOB_ITEM = By.xpath(
             "//div[contains(@class,'mega-menu-btn')]/button[normalize-space()='Job']"
                 + " | //li//button[normalize-space()='Job']");
@@ -124,11 +120,7 @@ public class AdminJobsPage extends BasePage {
     private static final By POSTING_LOG_ROWS = By.cssSelector("app-receipt-posting-log app-custom-table table.table-box tbody tr, app-custom-table table.table-box tbody tr");
     private static final By POSTING_LOG_NEXT_PAGE = By.cssSelector("app-receipt-posting-log div.paginator-container button[aria-label='Next page'], app-receipt-posting-log button[aria-label*='Next page']");
 
-    /**
- * The paginator label reads "N - M of T", but the range separator is rendered as an en dash, so a
- * hyphen and both dashes are accepted. Anchoring the pattern to the whole label keeps a page-count
- * phrase or a "(filtered from X)" suffix from being read as the record total.
- */
+    
 private static final Pattern PAGER_PATTERN = Pattern.compile(
             "(\\d+)\\s*(?:[-\\u2013\\u2014]\\s*(\\d+)\\s*)?of\\s*(?<total>\\d+)");
     private static final Pattern FULL_DATE_TIME = Pattern.compile("(?:\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?:\\s+|T)+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[APMapm]{2})?");
@@ -148,11 +140,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         this.jobsPageWait = wait;
     }
 
-/**
-     * Follows the flow a user performs: hover Admin, wait for the submenu, click Job inside it,
-     * then confirm the Admin Jobs page actually rendered. Clicking the Admin trigger directly
-     * cannot work, because the trigger only opens the menu on mouseover.
-     */
     public void navigateToAdminJobs() {
         if (isJobsPageLoaded()) return;
         awaitAppBootstrap();
@@ -214,10 +201,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         return results;
     }
 
-    /**
-     * N/A means the automation could not reliably inspect this job. It must never be confused
-     * with a real FAILED execution returned by EncorePay.
-     */
+    
     private JobStatus unavailableJobPlaceholder(String clientName, String jobName, Exception cause) {
         JobStatus unavailable = new JobStatus();
         unavailable.setClientName(clientName);
@@ -334,13 +318,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
     }
 
-    /**
-     * Sets the receipt date with a scripted value write. The field is a native
-     * <input type="date"> bound with ngModel, whose value cannot be typed reliably because
-     * keystrokes must match the browser's locale format. The events dispatched here are what
-     * update the Angular model, and the applied value is then verified against the query
-     * parameter the app itself writes when it searches.
-     */
+    
     private String selectReceiptDateToday() {
         WebElement date = wait.until(ExpectedConditions.visibilityOfElementLocated(RECEIPT_DATE));
 
@@ -436,7 +414,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
     }
 
-    /** Reads a query parameter from the current URL without executing script. */
+    
     private String queryParam(String name) {
         String url = driver.getCurrentUrl();
         int start = url.indexOf('?');
@@ -457,11 +435,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         return "";
     }
 
-    /**
-     * The total is the last number of the paginator label, which the app renders as
-     * "N - M of T" or "0 of 0". Anchoring the pattern keeps a page-count phrase or a
-     * "(filtered from X)" suffix from being read as the record total.
-     */
+    
     private int readReceiptTotalCount(ReceiptCapture capture) {
         String range = readPaginatorRange();
         Matcher matcher = PAGER_PATTERN.matcher(range);
@@ -618,7 +592,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
     }
 
-    /** Reasons collected from the error menus, plus non-fatal capture problems. */
+    
     private static final class ReasonScan {
         final Set<String> reasons;
         final Set<String> problems;
@@ -668,11 +642,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
     }
 
-    /**
-     * Closes the Material menu and confirms it is gone. Returns false when the menu survives
-     * every safe dismissal, which the caller must treat as a data-integrity problem rather than
-     * a warning, because a still-open menu makes the next row read return the previous reason.
-     */
+    
     private boolean closeFailureReasonMenu(int rowIndex) {
         for (int attempt = 0; attempt < 3 && isFailureReasonMenuOpen(); attempt++) {
             try {
@@ -1337,7 +1307,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         });
     }
 
-/** Step 1 and 2: hover the Admin trigger, then wait for the submenu to be rendered. */
     private void hoverAdminMenu() {
         RuntimeException lastFailure = null;
 
@@ -1362,7 +1331,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 lastFailure);
     }
 
-    /** Step 3 and 4: find Job only once the submenu exists, then click it. */
+    
     private void clickJobInAdminMenu() {
         RuntimeException lastFailure = null;
 
@@ -1393,7 +1362,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 lastFailure);
     }
 
-    /** Step 5: confirm the Admin Jobs page rendered, using its own UI rather than the URL. */
+    
     private void verifyAdminJobsPageRendered() {
         waitForNavigation("the Admin Jobs page to render its jobs table",
                 d -> isAdminJobsPageRendered());
@@ -1403,11 +1372,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         return isDisplayed(ADMIN_MENU_OVERLAY) && isDisplayed(ADMIN_MENU_PANEL);
     }
 
-    /**
-     * UI evidence that the Jobs page is really loaded: the app-job component is on screen and
-     * its table has rows. The URL is deliberately not part of this, because the route can change
-     * before the component has rendered.
-     */
+    
     private boolean isAdminJobsPageRendered() {
         return isDisplayed(JOBS_PAGE_ROOT) && !visibleJobRows().isEmpty();
     }
@@ -1422,10 +1387,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
     }
 
-    /**
-     * A navigation wait that explains itself. The stock message names only the page class, so a
-     * failure here records the URL, which menu pieces were visible, and a screenshot instead.
-     */
+    
 private <T> T waitForNavigation(String description, Function<? super WebDriver, T> condition) {
         try {
             return jobsPageWait.until(condition);
@@ -1435,10 +1397,7 @@ private <T> T waitForNavigation(String description, Function<? super WebDriver, 
         }
     }
 
-    /**
-     * A wait that names what it was waiting for. Selenium's own timeout message identifies only
-     * the lambda, which is why a receipt-capture failure could not previously be traced to a step.
-     */
+    
     private void waitForState(String description, java.util.function.Predicate<WebDriver> condition) {
         waitForNavigation(description, d -> condition.test(d) ? Boolean.TRUE : null);
     }
@@ -1511,23 +1470,13 @@ private void waitForJobDetailsPage(String jobName) {
         wait.until(d -> isDisplayed(RECEIPT_DATE) && isDisplayed(LMS_POSTING_STATUS) && isDisplayed(RECEIPT_SEARCH));
     }
 
-    /**
-     * Accepts only a finished result set: rows on screen, or an explicit empty result from the
-     * paginator. A rendered paginator on its own is not enough, because it is still the previous
-     * page's value while the next request is in flight.
-     */
+    
     private void waitForReceiptResults() {
         waitForState("receipt results to render rows or an explicit empty result",
                 d -> !visibleReceiptRows().isEmpty() || isReceiptEmpty());
     }
 
-    /**
-     * The custom table renders no empty-state markup, so emptiness is read from the paginator
-     * itself: its label is exactly "0 of 0" when there are no records, otherwise "N - M of T".
-     * Text scanning is deliberately not used, because "no data" can appear anywhere in the panel.
-     * A blank label is not treated as empty, so a paginator that has not rendered yet cannot be
-     * mistaken for a result set that has finished loading.
-     */
+    
     private boolean isReceiptEmpty() {
         String range = readPaginatorRange();
         if (range.isBlank()) return false;
@@ -1584,10 +1533,7 @@ private void waitForJobDetailsPage(String jobName) {
         return result;
     }
 
-    /**
-     * The grid is resolver-filled, so rows arrive in bursts. Wait for the row count to settle
-     * before any lookup may treat a job as unconfigured.
-     */
+    
     private List<WebElement> waitForSettledJobRows() {
         final int[] previousCount = { -1 };
         final int[] stablePasses = { 0 };
@@ -1647,7 +1593,7 @@ private void waitForJobDetailsPage(String jobName) {
         return row;
     }
 
-    /** Finds a job row on any grid page, restoring the starting page afterwards. */
+    
     private WebElement findJobRowAcrossPages(String jobName) {
         WebElement row = findJobRowOptional(jobName);
         if (row != null) {
@@ -1729,11 +1675,7 @@ private void waitForJobDetailsPage(String jobName) {
         return "";
     }
 
-    /**
-     * Matches a job row in two passes. The exact canonical match on the job-name cell runs first
-     * so a row for another job can never win on a substring, and the looser row-text match is only
-     * a fallback for layouts that do not put the name in its own cell.
-     */
+    
     private WebElement findJobRowOptional(String jobName) {
         List<String> canonicalAliases = canonicalAliasesOf(jobName);
         List<WebElement> scopedRows = displayedRows(JOB_ROWS);
@@ -1793,7 +1735,7 @@ private void waitForJobDetailsPage(String jobName) {
         return "";
     }
 
-    /** Normalises case, spacing and punctuation so job name variants match. */
+    
     private static String canonical(String value) {
         if (value == null) return "";
         return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
@@ -1867,10 +1809,6 @@ private void waitForJobDetailsPage(String jobName) {
         return clean.substring(0, 177) + "...";
     }
 
-/**
-     * Named for what it does. The old signature took a millisecond value that was ignored, which
-     * hid the fact that these points waited on UI stability rather than on a fixed delay.
-     */
     private void awaitUiStability() {
         waitForUiStable();
     }
@@ -1890,7 +1828,7 @@ private void waitForJobDetailsPage(String jobName) {
             "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
     };
 
-    /** Fixed format so generated rows match the timestamps read from the application. */
+    
 
     private static class ReceiptCapture {
         int totalCount;
@@ -1898,4 +1836,6 @@ private void waitForJobDetailsPage(String jobName) {
         Set<String> problems = new LinkedHashSet<>();
     }
 }
+
+
 

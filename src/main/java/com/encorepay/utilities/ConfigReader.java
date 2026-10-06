@@ -107,13 +107,7 @@ public class ConfigReader {
         return getIntProperty("explicitWait", 20);
     }
 
-    /**
-     * The business timezone that Job Monitoring reports in.
-     *
-     * Timestamps shown by the application are rendered by the browser's own date formatting, so the
-     * browser has to run in this zone for a report to read the same everywhere. The Java side uses
-     * the same zone for "business today" and for report metadata. Default Asia/Kolkata.
-     */
+    
     public ZoneId getBusinessZone() {
         String zone = getProperty("businessZone", "Asia/Kolkata");
         if (zone == null || zone.isBlank()) zone = "Asia/Kolkata";
@@ -130,11 +124,7 @@ public class ConfigReader {
         return getIntProperty("pageLoadTimeout", 45);
     }
 
-    /**
-     * Budget for the Angular app to bootstrap and render its first view. This is separate from
-     * the element wait because a cold CI runner can take far longer to load the bundle and
-     * first API call than a warm developer machine, and that delay is not an element problem.
-     */
+    
     public int getBootTimeout() {
         return getIntProperty("bootTimeout", 90);
     }
@@ -185,10 +175,7 @@ public class ConfigReader {
         return getClientsInternal();
     }
 
-    /**
-     * Ensures all client names are unique by appending host when duplicates exist.
-     * This runs in ConfigReader so names are correct everywhere (reports, logs, etc).
-     */
+    
     private List<ClientConfig> disambiguateClientNames(List<ClientConfig> clients) {
         Map<String, Integer> seen = new LinkedHashMap<>();
         List<ClientConfig> result = new ArrayList<>();
@@ -213,10 +200,7 @@ public class ConfigReader {
         return result;
     }
 
-    /**
-     * CLIENT_URLS and CLIENT_N_URL are merged so a partially filled CLIENT_URLS list does not silently drop
-     * a configured client. A repeated URL is deduplicated by host and path, and the first source wins.
-     */
+    
     private List<ClientConfig> mergeClients(List<ClientConfig> fromUrls, List<ClientConfig> indexedClients) {
         Map<String, ClientConfig> merged = new LinkedHashMap<>();
 
@@ -236,7 +220,7 @@ public class ConfigReader {
         return new ArrayList<>(merged.values());
     }
 
-    /** Reports a configured client that has no credentials, which would fail at sign-in. */
+    
     private void warnAboutMissingIndexedCredentials(List<ClientConfig> clients) {
         for (ClientConfig client : clients) {
             if (isBlank(client.getUsername()) || isBlank(client.getPassword())) {
@@ -369,10 +353,7 @@ public class ConfigReader {
         return "";
     }
 
-    /**
-     * Extracts a meaningful host identifier from URL for disambiguation.
-     * Uses full host (minus www/uat/test/qa/prod prefixes) for uniqueness.
-     */
+    
     private String hostOf(ClientConfig client) {
         try {
             String normalized = client.getUrl().matches("(?i)^https?://.*") ? client.getUrl() : "https://" + client.getUrl();
@@ -484,4 +465,5 @@ public class ConfigReader {
         return env == null || env.isBlank() ? getProperty("smtpPassword", "") : env.trim();
     }
 }
+
 

@@ -46,12 +46,12 @@ public final class ScreenshotUtil {
         addDetail(VERIFICATIONS, currentTestName(null), detail);
     }
 
-    /** Returns the repo-relative screenshot path so a failure message can point at it. */
+    
     public static String captureCurrentTestStep(WebDriver driver, String stepLabel) {
         return captureScreenshot(driver, currentTestName(stepLabel), stepLabel);
     }
 
-    /** Returns a repo-relative path, or an empty string when the capture was not possible. */
+    
     public static String captureScreenshot(WebDriver driver, String testName, String stepLabel) {
         String label = stepLabel == null || stepLabel.isBlank() ? "Screenshot" : stepLabel;
 
@@ -139,7 +139,7 @@ public final class ScreenshotUtil {
         }
     }
 
-    /** Falls back to the label so captures taken outside a test still land in a bucket. */
+    
     private static String currentTestName(String fallbackLabel) {
         String name = CURRENT_TEST.get();
         if (name != null && !name.isBlank()) {
@@ -184,4 +184,5 @@ public final class ScreenshotUtil {
         return sanitized.length() > 80 ? sanitized.substring(0, 80).trim() : sanitized;
     }
 }
+
 
