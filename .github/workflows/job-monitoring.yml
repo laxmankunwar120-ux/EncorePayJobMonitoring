@@ -207,6 +207,9 @@ jobs:
         if: always()
         env:
           GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          GOOGLE_CHAT_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CHAT_OAUTH_CLIENT_ID }}
+          GOOGLE_CHAT_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CHAT_OAUTH_CLIENT_SECRET }}
+          GOOGLE_CHAT_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_CHAT_OAUTH_REFRESH_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPORT_NAME: job-monitoring-report-${{ github.run_number }}
         run: |
@@ -222,39 +225,128 @@ jobs:
             status="FAILED"
           fi
 
+          report_file=""
           report_count=$(find test-output/report -maxdepth 1 -type f -name '*.html' 2>/dev/null | wc -l | tr -d ' ')
-          screenshot_count=$(find screenshots -type f 2>/dev/null | wc -l | tr -d ' ')
-
-          payload=$(STATUS="$status" RUN_URL="$RUN_URL" REPORT_NAME="$REPORT_NAME" REPORT_COUNT="$report_count" SCREENSHOT_COUNT="$screenshot_count" python3 - <<'PY'
-          import json, os
-          text = (
-              "ENCOREPAY JOB MONITORING REPORT\n"
-              f"Status: {os.environ['STATUS']}\n"
-              f"HTML reports generated: {os.environ['REPORT_COUNT']}\n"
-              f"Screenshots archived: {os.environ['SCREENSHOT_COUNT']}\n"
-              f"GitHub report & artifacts: {os.environ['RUN_URL']}\n"
-              f"Artifact: {os.environ['REPORT_NAME']}"
-          )
-          print(json.dumps({"text": text}))
-          PY
-          )
-
-          response=$(curl --fail-with-body -sS -w "\nHTTP_STATUS:%{http_code}" \
-            --connect-timeout 15 --max-time 60 \
-            -X POST \
-            -H "Content-Type: application/json; charset=UTF-8" \
-            --data "$payload" \
-            "$GOOGLE_CHAT_WEBHOOK_URL")
-
-          echo "$response"
-          http_status=$(printf '%s' "$response" | sed -n 's/^HTTP_STATUS://p' | tail -1)
-
-          if [ "$http_status" != "200" ]; then
-            echo "::error::Google Chat webhook delivery failed with HTTP $http_status."
-            exit 1
+          if [ "$report_count" -gt 0 ]; then
+            report_file=$(find test-output/report -maxdepth 1 -type f -name '*.html' | sort | head -1)
           fi
 
-          echo "::notice::Google Chat webhook accepted the run report."
+          screenshot_count=$(find screenshots -type f 2>/dev/null | wc -l | tr -d ' ')
+
+          STATUS="$status" RUN_URL="$RUN_URL" REPORT_NAME="$REPORT_NAME" REPORT_COUNT="$report_count" SCREENSHOT_COUNT="$screenshot_count" REPORT_FILE="$report_file" python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.parse
+          import urllib.request
+          import uuid
+
+          webhook = os.environ["GOOGLE_CHAT_WEBHOOK_URL"]
+          client_id = os.environ.get("GOOGLE_CHAT_OAUTH_CLIENT_ID", "")
+          client_secret = os.environ.get("GOOGLE_CHAT_OAUTH_CLIENT_SECRET", "")
+          refresh_token = os.environ.get("GOOGLE_CHAT_OAUTH_REFRESH_TOKEN", "")
+          status = os.environ["STATUS"]
+          run_url = os.environ["RUN_URL"]
+          report_name = os.environ["REPORT_NAME"]
+          report_count = os.environ["REPORT_COUNT"]
+          screenshot_count = os.environ["SCREENSHOT_COUNT"]
+          report_file = os.environ.get("REPORT_FILE", "")
+
+          message = (
+              "ENCOREPAY JOB MONITORING REPORT\n"
+              f"Status: {status}\n"
+              f"HTML reports generated: {report_count}\n"
+              f"Screenshots archived: {screenshot_count}\n"
+              f"GitHub report & artifacts: {run_url}"
+          )
+
+          def post(url, data, headers):
+              req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return response.status, response.read().decode("utf-8", "replace")
+
+          if client_id and client_secret and refresh_token and report_file:
+              token_body = urllib.parse.urlencode({
+                  "client_id": client_id,
+                  "client_secret": client_secret,
+                  "refresh_token": refresh_token,
+                  "grant_type": "refresh_token",
+              }).encode()
+              token_status, token_response = post(
+                  "https://oauth2.googleapis.com/token",
+                  token_body,
+                  {"Content-Type": "application/x-www-form-urlencoded"},
+              )
+              if token_status < 200 or token_status >= 300:
+                  raise RuntimeError(f"Google OAuth token refresh failed: HTTP {token_status}: {token_response[:500]}")
+              access_token = json.loads(token_response)["access_token"]
+
+              match = re.search(r"/v1/spaces/([^/]+)/messages(?:$|[?])", webhook)
+              if not match:
+                  raise RuntimeError("Unable to determine Google Chat space from GOOGLE_CHAT_WEBHOOK_URL")
+              space = "spaces/" + match.group(1)
+
+              filename = os.path.basename(report_file)
+              boundary = "EncorePayBoundary" + uuid.uuid4().hex
+              with open(report_file, "rb") as handle:
+                  file_bytes = handle.read()
+
+              metadata = json.dumps({"filename": filename}).encode()
+              body = (
+                  b"--" + boundary.encode() + b"\r\n"
+                  b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+                  + metadata + b"\r\n"
+                  b"--" + boundary.encode() + b"\r\n"
+                  b"Content-Type: text/html; charset=UTF-8\r\n\r\n"
+                  + file_bytes + b"\r\n"
+                  b"--" + boundary.encode() + b"--\r\n"
+              )
+
+              upload_url = (
+                  f"https://chat.googleapis.com/upload/v1/{space}/attachments:upload"
+                  "?uploadType=multipart"
+              )
+              upload_status, upload_response = post(
+                  upload_url,
+                  body,
+                  {
+                      "Authorization": f"Bearer {access_token}",
+                      "Content-Type": f"multipart/related; boundary={boundary}",
+                  },
+              )
+              if upload_status < 200 or upload_status >= 300:
+                  raise RuntimeError(f"Google Chat attachment upload failed: HTTP {upload_status}: {upload_response[:1000]}")
+
+              attachment = json.loads(upload_response)
+              payload = json.dumps({
+                  "text": message,
+                  "attachment": [attachment],
+              }).encode()
+
+              send_status, send_response = post(
+                  f"https://chat.googleapis.com/v1/{space}/messages",
+                  payload,
+                  {
+                      "Authorization": f"Bearer {access_token}",
+                      "Content-Type": "application/json; charset=UTF-8",
+                  },
+              )
+              if send_status < 200 or send_status >= 300:
+                  raise RuntimeError(f"Google Chat API message failed: HTTP {send_status}: {send_response[:1000]}")
+
+              print(f"[INFO] Google Chat report attachment sent directly: {filename}")
+          else:
+              payload = json.dumps({"text": message + f"\nArtifact: {report_name}"}).encode()
+              send_status, send_response = post(
+                  webhook,
+                  payload,
+                  {"Content-Type": "application/json; charset=UTF-8"},
+              )
+              if send_status < 200 or send_status >= 300:
+                  raise RuntimeError(f"Google Chat webhook delivery failed: HTTP {send_status}: {send_response[:1000]}")
+              print("[INFO] Google Chat webhook fallback notification sent.")
+          PY
+
       - name: Archive screenshots
         if: failure()
         uses: actions/upload-artifact@v4
