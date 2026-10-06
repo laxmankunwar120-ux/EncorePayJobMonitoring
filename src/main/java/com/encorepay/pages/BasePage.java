@@ -55,11 +55,42 @@ public class BasePage {
     }
 
     protected void awaitAppBootstrap() {
-        bootWait.until(d -> documentComplete(d) && hasApplicationIdentity(d) && isVisibleApplicationScreen());
+        bootWait.until(d -> {
+            String accessFailure = detectApplicationAccessFailure(d);
+            if (!accessFailure.isBlank()) {
+                throw new IllegalStateException(accessFailure);
+            }
+            return documentComplete(d) && hasApplicationIdentity(d) && isVisibleApplicationScreen();
+        });
     }
 
     public void waitForVisibleApplicationScreen() {
         awaitAppBootstrap();
+    }
+
+    private String detectApplicationAccessFailure(WebDriver d) {
+        try {
+            String title = d.getTitle();
+            String source = d.getPageSource();
+            String normalizedTitle = title == null ? "" : title.toLowerCase(Locale.ROOT);
+            String normalizedSource = source == null ? "" : source.toLowerCase(Locale.ROOT);
+
+            if (normalizedTitle.contains("403") || normalizedTitle.contains("forbidden")
+                    || normalizedSource.contains("403 forbidden")) {
+                return "Application access was rejected with HTTP 403 Forbidden. "
+                        + "URL: " + d.getCurrentUrl()
+                        + " | title: " + title;
+            }
+
+            if (normalizedTitle.contains("access denied")
+                    || normalizedSource.contains("access denied")) {
+                return "Application access was rejected with an Access Denied page. "
+                        + "URL: " + d.getCurrentUrl()
+                        + " | title: " + title;
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     protected boolean isVisibleApplicationScreen() {
