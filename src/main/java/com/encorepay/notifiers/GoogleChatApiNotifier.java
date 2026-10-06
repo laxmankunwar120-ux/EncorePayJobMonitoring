@@ -37,45 +37,31 @@ final class GoogleChatApiNotifier {
             return;
         }
 
-        String accessToken = refreshAccessToken(config);
-        String space = extractSpace(webhook);
-        JsonObject attachment = null;
+        try {
+            String accessToken = refreshAccessToken(config);
+            String space = extractSpace(webhook);
+            JsonObject attachment = null;
 
-        if (htmlReportPath != null && !htmlReportPath.isBlank()) {
-            Path report = Path.of(htmlReportPath);
-            if (!Files.isRegularFile(report)) {
-                throw new IllegalStateException("HTML report file was not found: " + htmlReportPath);
+            if (htmlReportPath != null && !htmlReportPath.isBlank()) {
+                Path report = Path.of(htmlReportPath);
+                if (!Files.isRegularFile(report)) {
+                    throw new IllegalStateException("HTML report file was not found: " + htmlReportPath);
+                }
+                attachment = uploadAttachment(accessToken, space, report);
             }
-            attachment = uploadAttachment(accessToken, space, report);
+
+            sendApiMessage(accessToken, space, message, attachment);
+
+            System.out.println(attachment == null
+                    ? "[INFO] Google Chat API message sent successfully."
+                    : "[INFO] Google Chat API message sent with HTML attachment.");
+        } catch (Exception oauthException) {
+            System.err.println("[WARN] Google Chat OAuth notification failed: "
+                    + abbreviate(oauthException.getMessage(), 500)
+                    + ". Falling back to the existing webhook notification.");
+            sendWebhook(webhook, message);
+            System.out.println("[INFO] Google Chat webhook fallback notification sent successfully.");
         }
-
-        JsonObject body = new JsonObject();
-        body.addProperty("text", message);
-
-        if (attachment != null) {
-            JsonArray attachments = new JsonArray();
-            attachments.add(attachment);
-            body.add("attachment", attachments);
-        }
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(CHAT_API + "/v1/" + space + "/messages"))
-                .header("Authorization", "Bearer " + accessToken)
-                .header("Content-Type", "application/json; charset=UTF-8")
-                .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
-                .build();
-
-        HttpResponse<String> response = HTTP_CLIENT.send(request,
-                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IllegalStateException("Google Chat API returned HTTP "
-                    + response.statusCode() + ": " + abbreviate(response.body(), 500));
-        }
-
-        System.out.println(attachment == null
-                ? "[INFO] Google Chat API message sent successfully."
-                : "[INFO] Google Chat API message sent with HTML attachment.");
     }
 
     private static boolean hasOAuthCredentials(ConfigReader config) {
@@ -136,7 +122,7 @@ final class GoogleChatApiNotifier {
         byte[] body = buildMultipartBody(boundary, report);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(CHAT_API + "/upload/v1/" + space + "/attachments:upload"))
+                .uri(URI.create(CHAT_API + "/upload/v1/" + space + "/attachments:upload?uploadType=multipart"))
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Content-Type", "multipart/related; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
@@ -152,6 +138,33 @@ final class GoogleChatApiNotifier {
         return JsonParser.parseString(response.body()).getAsJsonObject();
     }
 
+    private static void sendApiMessage(String accessToken, String space, String message,
+                                         JsonObject attachment) throws Exception {
+        JsonObject body = new JsonObject();
+        body.addProperty("text", message);
+
+        if (attachment != null) {
+            JsonArray attachments = new JsonArray();
+            attachments.add(attachment);
+            body.add("attachment", attachments);
+        }
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(CHAT_API + "/v1/" + space + "/messages"))
+                .header("Authorization", "Bearer " + accessToken)
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                .build();
+
+        HttpResponse<String> response = HTTP_CLIENT.send(request,
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException("Google Chat API returned HTTP "
+                    + response.statusCode() + ": " + abbreviate(response.body(), 500));
+        }
+    }
+
     private static byte[] buildMultipartBody(String boundary, Path report) throws IOException {
         String fileName = report.getFileName().toString();
         String metadata = "{\"filename\":\"" + escapeJson(fileName) + "\"}";
@@ -161,7 +174,6 @@ final class GoogleChatApiNotifier {
         write(out, "Content-Type: application/json; charset=UTF-8\r\n\r\n");
         write(out, metadata + "\r\n");
         write(out, "--" + boundary + "\r\n");
-        write(out, "Content-Disposition: form-data; name=\"media\"; filename=\"" + escapeHeader(fileName) + "\"\r\n");
         write(out, "Content-Type: text/html; charset=UTF-8\r\n\r\n");
         out.write(fileBytes);
         write(out, "\r\n--" + boundary + "--\r\n");
