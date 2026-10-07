@@ -19,7 +19,7 @@ public final class GoogleChatNotifier {
     private static final String UPCOMING = "Encore Up Coming Demands Job";
 
     private static final DateTimeFormatter REPORT_TIME =
-            DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.ENGLISH);
+            DateTimeFormatter.ofPattern("dd-MMM-yyyy hh:mm a", Locale.ENGLISH);
 
     private static final DateTimeFormatter[] INPUT_FORMATS = {
             DateTimeFormatter.ofPattern("dd MMM yyyy hh:mm:ss a", Locale.ENGLISH),
@@ -84,49 +84,77 @@ public final class GoogleChatNotifier {
 
         List<JobStatus> jobs = statuses == null
                 ? List.of()
-                : statuses.stream().filter(s -> s != null).toList();
+                : statuses.stream()
+                        .filter(s -> s != null)
+                        .toList();
 
         List<String> clients = resolveClients(jobs, configuredClients);
+        Set<String> monitoredClients = resolveMonitoredClients(jobs);
 
-        long successful = jobs.stream()
+        long successfulJobs = jobs.stream()
                 .filter(s -> isSuccessful(s.getStatus()))
                 .count();
 
-        long partial = jobs.stream()
-                .filter(s -> isPartial(s.getStatus()))
+        long failedJobs = jobs.stream()
+                .filter(s -> isFailed(s.getStatus()) || isPartial(s.getStatus()))
                 .count();
 
-        long failed = jobs.stream()
-                .filter(s -> isFailed(s.getStatus()))
+        long noStatusJobs = jobs.stream()
+                .filter(s -> isNoStatus(s.getStatus()))
                 .count();
+
+        int monitoringFailed = 0;
+        for (String client : clients) {
+            if (!monitoredClients.contains(client)) {
+                monitoringFailed++;
+            }
+        }
+
+        int monitored = Math.max(0, clients.size() - monitoringFailed);
 
         StringBuilder message = new StringBuilder();
 
-        message.append("ENCOREPAY JOB MONITORING REPORT\n\n")
-                .append("Run Date      : ")
+        message.append("*ENCOREPAY JOB MONITORING REPORT*\\n")
+                .append("Generated: ")
                 .append(LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME))
-                .append("\n")
-                .append("Total Clients : ")
-                .append(clients.size())
-                .append("\n\n");
+                .append("\\n\\n");
 
-        message.append("OVERALL SUMMARY\n\n")
-                .append("Successful Jobs : ").append(successful).append("\n")
-                .append("Partial Jobs    : ").append(partial).append("\n")
-                .append("Failed Jobs     : ").append(failed).append("\n\n");
+        message.append("*Summary*\\n")
+                .append("Total Clients: ").append(clients.size())
+                .append(" | Monitored: ").append(monitored)
+                .append(" | Successful: ").append(successfulJobs)
+                .append(" | Failed: ").append(failedJobs)
+                .append(" | No Status: ").append(noStatusJobs)
+                .append(" | Monitoring Failed: ").append(monitoringFailed)
+                .append("\\n\\n");
 
-        message.append("CLIENT JOB STATUS\n\n");
+        appendPostReceiptSection(message, clients, jobs);
+        appendFailureReasonsSection(message, clients, jobs);
+        appendSimpleJobSection(message, "*2. DOWNLOAD COLLECTION ITEM JOB*", clients, jobs, COLLECTIONS, false);
+        appendSimpleJobSection(message, "*3. UPCOMING DEMAND JOB*", clients, jobs, UPCOMING, true);
+        appendAutomationIssues(message, clients, jobs, clientFailures, monitoredClients);
+        appendReportStatus(message, jobs, clientFailures, monitoringFailed, noStatusJobs);
 
-        for (int i = 0; i < clients.size(); i++) {
-            appendClient(message, i + 1, clients.get(i), jobs);
+        return message.toString().trim();
+    }
+
+    private static Set<String> resolveMonitoredClients(List<JobStatus> jobs) {
+        Set<String> monitored = new LinkedHashSet<>();
+
+        for (JobStatus job : jobs) {
+            if (job == null) continue;
+
+            String client = clean(job.getClientName());
+            String jobName = clean(job.getJobName());
+
+            if (!client.isBlank()
+                    && (POST_RECEIPTS.equalsIgnoreCase(jobName)
+                    || COLLECTIONS.equalsIgnoreCase(jobName))) {
+                monitored.add(client);
+            }
         }
 
-        appendTechnicalIssues(message, clientFailures, jobs);
-
-        message.append("REPORT STATUS\n\n")
-                .append(containsHardFailure(jobs, clientFailures) ? "FAILED" : "COMPLETED");
-
-        return message.toString();
+        return monitored;
     }
 
     private static List<String> resolveClients(List<JobStatus> jobs, List<String> configuredClients) {
@@ -151,90 +179,148 @@ public final class GoogleChatNotifier {
         return new ArrayList<>(names);
     }
 
-    private static void appendClient(
+    private static void appendPostReceiptSection(
             StringBuilder message,
-            int number,
-            String client,
+            List<String> clients,
             List<JobStatus> jobs) {
 
-        message.append(number).append(". *").append(client).append("*\n");
+        message.append("*1. POST RECEIPT JOB*\\n");
+        message.append("```\\n");
+        message.append(String.format(
+                "%-17s %-12s %7s %7s %-20s%n",
+                "Client", "Status", "Failed", "Pending", "Date & Time"));
+        message.append("---------------------------------------------------------------\\n");
 
-        JobStatus post = findJob(jobs, client, POST_RECEIPTS);
-        JobStatus collections = findJob(jobs, client, COLLECTIONS);
-        JobStatus upcoming = findJob(jobs, client, UPCOMING);
+        for (String client : clients) {
+            JobStatus status = findJob(jobs, client, POST_RECEIPTS);
 
-        if (post == null && collections == null && upcoming == null) {
-            message.append("  Monitoring       : FAILED\n");
-            message.append("\n");
-            return;
+            if (status == null) {
+                message.append(String.format(
+                        "%-17s %-12s %7s %7s %-20s%n",
+                        abbreviate(client, 17), "NO STATUS", "-", "-", "-"));
+                continue;
+            }
+
+            String value = displayStatus(status.getStatus());
+            String dateTime = formatDateTime(status.getDateTime());
+
+            String failed = isNoStatus(status.getStatus())
+                    ? "-"
+                    : String.valueOf(status.getFailedCount());
+
+            String pending = isNoStatus(status.getStatus())
+                    ? "-"
+                    : String.valueOf(status.getPendingCount());
+
+            if (dateTime.isBlank() || "NOT CAPTURED".equalsIgnoreCase(dateTime)) {
+                dateTime = "-";
+            }
+
+            message.append(String.format(
+                    "%-17s %-12s %7s %7s %-20s%n",
+                    abbreviate(client, 17),
+                    abbreviate(value, 12),
+                    failed,
+                    pending,
+                    abbreviate(dateTime, 20)));
         }
 
-        if (post != null) {
-            appendJobLine(message, "Post Receipts", post);
-        }
-        if (collections != null) {
-            appendJobLine(message, "Collection Items", collections);
-        }
-        if (upcoming != null) {
-            appendJobLine(message, "Upcoming Demand", upcoming);
-        }
-
-        if (post != null && post.getFailedCount() > 0) {
-            message.append("  Failed Receipts  : ")
-                    .append(post.getFailedCount())
-                    .append("\n")
-                    .append("  Pending Receipts : ")
-                    .append(post.getPendingCount())
-                    .append("\n");
-
-            appendFailureDetails(message, post);
-        }
-
-        message.append("\n");
+        message.append("```\\n");
     }
 
-    private static void appendJobLine(StringBuilder message, String label, JobStatus status) {
-        message.append("  ")
-                .append(String.format("%-17s", label + " :"));
+    private static void appendFailureReasonsSection(
+            StringBuilder message,
+            List<String> clients,
+            List<JobStatus> jobs) {
 
-        if (status == null) {
-            message.append(" NOT RUN\n");
-            return;
+        List<String> lines = new ArrayList<>();
+
+        for (String client : clients) {
+            JobStatus post = findJob(jobs, client, POST_RECEIPTS);
+
+            if (post == null || post.getFailedCount() <= 0) {
+                continue;
+            }
+
+            List<String> reasons = post.getFailureReasons() == null
+                    ? List.of()
+                    : post.getFailureReasons();
+
+            if (!reasons.isEmpty()) {
+                for (String reason : new LinkedHashSet<>(reasons)) {
+                    String value = abbreviate(cleanReason(reason), MAX_REASON_LENGTH);
+                    if (!value.isBlank()) {
+                        lines.add("- " + client + ": " + value);
+                    }
+                }
+            } else {
+                String fallback = cleanReason(post.getJobFailureReason());
+                if (fallback.isBlank()) {
+                    fallback = "no receipt-level reason captured";
+                }
+                lines.add("- " + client + ": " + abbreviate(fallback, MAX_REASON_LENGTH));
+            }
         }
 
-        String value = displayStatus(status.getStatus());
-        String dateTime = formatDateTime(status.getDateTime());
+        if (lines.isEmpty()) return;
 
-        if (isNotRun(status.getStatus()) || dateTime.isBlank() || "NOT CAPTURED".equalsIgnoreCase(dateTime)) {
-            message.append(" ").append(value).append("\n");
-            return;
+        message.append("\\n*Failure Reasons*\\n");
+        for (String line : lines) {
+            message.append(line).append("\\n");
         }
-
-        message.append(" ")
-                .append(value)
-                .append(" (")
-                .append(dateTime)
-                .append(")\n");
     }
 
-    private static void appendFailureDetails(StringBuilder message, JobStatus status) {
-        List<String> reasons = status.getFailureReasons();
+    private static void appendSimpleJobSection(
+            StringBuilder message,
+            String title,
+            List<String> clients,
+            List<JobStatus> jobs,
+            String jobName,
+            boolean optional) {
 
-        if (reasons == null || reasons.isEmpty()) {
-            String fallback = safe(status.getJobFailureReason());
-            message.append("  Failure Details   : ")
-                    .append(fallback.isBlank() ? "Not captured" : abbreviate(cleanReason(fallback), MAX_REASON_LENGTH))
-                    .append("\n");
-            return;
+        message.append("\\n").append(title).append("\\n");
+        message.append("```\\n");
+        message.append(String.format(
+                "%-17s %-12s %-20s%n",
+                "Client", "Status", "Date & Time"));
+        message.append("------------------------------------------------\\n");
+
+        for (String client : clients) {
+            JobStatus status = findJob(jobs, client, jobName);
+
+            if (status == null && optional) {
+                message.append(String.format(
+                        "%-17s %-12s %-20s%n",
+                        abbreviate(client, 17),
+                        "N/A",
+                        "Not configured"));
+                continue;
+            }
+
+            if (status == null) {
+                message.append(String.format(
+                        "%-17s %-12s %-20s%n",
+                        abbreviate(client, 17),
+                        "NO STATUS",
+                        "-"));
+                continue;
+            }
+
+            String value = displayStatus(status.getStatus());
+            String dateTime = formatDateTime(status.getDateTime());
+
+            if (dateTime.isBlank() || "NOT CAPTURED".equalsIgnoreCase(dateTime)) {
+                dateTime = "-";
+            }
+
+            message.append(String.format(
+                    "%-17s %-12s %-20s%n",
+                    abbreviate(client, 17),
+                    abbreviate(value, 12),
+                    abbreviate(dateTime, 20)));
         }
 
-        message.append("  Failure Details\n");
-
-        for (String reason : reasons) {
-            message.append("    ")
-                    .append(abbreviate(cleanReason(reason), MAX_REASON_LENGTH))
-                    .append("\n");
-        }
+        message.append("```\\n");
     }
 
     private static JobStatus findJob(List<JobStatus> jobs, String client, String jobName) {
@@ -245,43 +331,145 @@ public final class GoogleChatNotifier {
                 .orElse(null);
     }
 
-    private static void appendTechnicalIssues(
+    private static void appendAutomationIssues(
             StringBuilder message,
+            List<String> clients,
+            List<JobStatus> jobs,
             List<String> clientFailures,
-            List<JobStatus> jobs) {
+            Set<String> monitoredClients) {
 
-        List<String> issues = new ArrayList<>();
+        Set<String> issues = new LinkedHashSet<>();
 
-        if (clientFailures != null) {
-            for (String failure : clientFailures) {
-                if (failure != null && !failure.isBlank()) {
-                    issues.add(cleanReason(failure));
+        for (String client : clients) {
+            if (!monitoredClients.contains(client)) {
+                String failure = failureForClient(client, clientFailures);
+                if (failure.isBlank()) {
+                    failure = "No monitoring result was produced for this client.";
                 }
+                issues.add(client + ": " + failure);
             }
         }
 
         for (JobStatus status : jobs) {
-            String reason = safe(status.getJobFailureReason());
-            if (reason.isBlank() || status.getFailedCount() > 0) {
-                continue;
+            if (status == null) continue;
+
+            String reason = cleanReason(status.getJobFailureReason());
+            if (reason.isBlank()) continue;
+
+            if (isNoStatus(status.getStatus())
+                    || isFailed(status.getStatus())
+                    || isPartial(status.getStatus())) {
+
+                if (POST_RECEIPTS.equalsIgnoreCase(clean(status.getJobName()))
+                        && status.getFailedCount() > 0) {
+                    continue;
+                }
+
+                issues.add(
+                        clean(status.getClientName())
+                                + " - "
+                                + clean(status.getJobName())
+                                + ": "
+                                + reason);
             }
+        }
 
-            if (isFailed(status.getStatus()) || reason.toUpperCase(Locale.ROOT).contains("CAPTURE FAILED")) {
-                issues.add(safe(status.getClientName()) + " - " + reason);
+        if (clientFailures != null) {
+            for (String failure : clientFailures) {
+                String value = cleanReason(failure);
+
+                if (value.isBlank()) continue;
+
+                String upper = value.toUpperCase(Locale.ROOT);
+                if (upper.startsWith("REPORT GENERATION")
+                        || upper.startsWith("NOTIFICATION")
+                        || upper.startsWith("CLIENT COVERAGE")) {
+                    continue;
+                }
+
+                String client = failureClient(value);
+                if (!client.isBlank() && clients.contains(client) && !monitoredClients.contains(client)) {
+                    continue;
+                }
+
+                issues.add(value);
             }
         }
 
-        if (issues.isEmpty()) {
-            return;
+        if (issues.isEmpty()) return;
+
+        message.append("\\n*Automation Issues*\\n");
+        for (String issue : issues) {
+            message.append(issue).append("\\n");
+        }
+    }
+
+    private static void appendReportStatus(
+            StringBuilder message,
+            List<JobStatus> jobs,
+            List<String> clientFailures,
+            int monitoringFailed,
+            long noStatusJobs) {
+
+        boolean actionRequired = monitoringFailed > 0 || noStatusJobs > 0;
+
+        for (JobStatus status : jobs) {
+            if (status != null
+                    && (isFailed(status.getStatus()) || isPartial(status.getStatus()))) {
+                actionRequired = true;
+                break;
+            }
         }
 
-        message.append("AUTOMATION ISSUES\n\n");
+        if (!actionRequired && clientFailures != null) {
+            for (String failure : clientFailures) {
+                if (failure == null || failure.isBlank()) continue;
 
-        for (String issue : new LinkedHashSet<>(issues)) {
-            message.append(issue).append("\n");
+                String upper = failure.toUpperCase(Locale.ROOT);
+                if (!upper.startsWith("REPORT GENERATION")
+                        && !upper.startsWith("NOTIFICATION")) {
+                    actionRequired = true;
+                    break;
+                }
+            }
         }
 
-        message.append("\n");
+        message.append("\\n*Report Status:* ")
+                .append(actionRequired ? "ACTION REQUIRED" : "COMPLETED")
+                .append("\\n");
+    }
+
+    private static String failureForClient(
+            String client,
+            List<String> clientFailures) {
+
+        if (clientFailures == null) return "";
+
+        for (String failure : clientFailures) {
+            String value = cleanReason(failure);
+
+            if (client.equalsIgnoreCase(failureClient(value))) {
+                return failureDetail(value);
+            }
+        }
+
+        return "";
+    }
+
+    private static String failureClient(String failure) {
+        int separator = failure.indexOf(" :: ");
+
+        return separator > 0
+                ? clean(failure.substring(0, separator))
+                : "";
+    }
+
+    private static String failureDetail(String failure) {
+        int separator = failure.indexOf(" :: ");
+
+        return separator > 0
+                ? cleanReason(failure.substring(separator + 4))
+                : cleanReason(failure);
     }
 
     private static boolean containsHardFailure(List<JobStatus> jobs, List<String> clientFailures) {
@@ -308,49 +496,44 @@ public final class GoogleChatNotifier {
     }
 
     private static boolean isSuccessful(String status) {
-        String value = safe(status).toUpperCase(Locale.ROOT);
+        String value = clean(status).toUpperCase(Locale.ROOT);
         return value.contains("SUCCESS")
                 || value.contains("COMPLETED")
                 || value.equals("SUCCEEDED");
     }
 
     private static boolean isPartial(String status) {
-        String value = safe(status).toUpperCase(Locale.ROOT);
-        return value.contains("PARTIAL");
+        return clean(status).toUpperCase(Locale.ROOT).contains("PARTIAL");
     }
 
     private static boolean isFailed(String status) {
-        return safe(status).toUpperCase(Locale.ROOT).contains("FAIL");
+        return clean(status).toUpperCase(Locale.ROOT).contains("FAIL");
     }
 
-    private static boolean isNotRun(String status) {
-        String value = safe(status).toUpperCase(Locale.ROOT);
-        return value.contains("NOT RUN")
-                || value.contains("NOT EXECUTED")
-                || value.equals("N/A");
+    private static boolean isNoStatus(String status) {
+        String value = clean(status).toUpperCase(Locale.ROOT);
+
+        return value.isBlank()
+                || value.contains("NO STATUS")
+                || value.contains("NOT CAPTURED")
+                || value.contains("NOT RUN")
+                || value.contains("NOT EXECUTED");
     }
 
     private static String displayStatus(String status) {
-        String value = safe(status);
+        String value = clean(status);
 
-        if (isPartial(value)) {
-            return "PARTIAL";
-        }
-
-        if (isFailed(value)) {
-            return "FAILED";
-        }
-
-        if (isNotRun(value)) {
-            return "NOT RUN";
-        }
+        if (isNoStatus(value)) return "NO STATUS";
+        if (isPartial(value)) return "PARTIAL";
+        if (isFailed(value)) return "FAILED";
 
         if (isSuccessful(value)) {
-            String upper = value.toUpperCase(Locale.ROOT);
-            return upper.contains("COMPLETED") ? "COMPLETED" : "SUCCESSFUL";
+            return value.toUpperCase(Locale.ROOT).contains("COMPLETED")
+                    ? "COMPLETED"
+                    : "SUCCESSFUL";
         }
 
-        return value.isBlank() ? "NOT CAPTURED" : value.toUpperCase(Locale.ROOT);
+        return value.isBlank() ? "NO STATUS" : value.toUpperCase(Locale.ROOT);
     }
 
     private static String formatDateTime(String value) {
@@ -372,10 +555,21 @@ public final class GoogleChatNotifier {
     }
 
     private static String cleanReason(String reason) {
-        return safe(reason)
+        return clean(reason)
+                .replaceAll("(?i)Receipt capture incomplete:\\s*", "")
+                .replaceAll("(?i)Receipt failure reason fallback incomplete:\\s*", "")
                 .replaceAll("(?s)\\[[^\\]]*nested exception:", "")
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private static String clean(String value) {
+        return value == null
+                ? ""
+                : value.trim()
+                        .replace("\n", " ")
+                        .replace("\r", " ")
+                        .replaceAll("\\s+", " ");
     }
 
     private static String extractHttpError(String reason) {
