@@ -118,6 +118,9 @@ public class AdminJobsPage extends BasePage {
     private static final By RECEIPT_ERROR_ICON = By.xpath(".//div[contains(@class,'material-symbols-rounded') and normalize-space()='error_outline']");
     private static final By MENU_BACKDROP = By.cssSelector(".cdk-overlay-backdrop, .cdk-overlay-dark-backdrop");
     private static final By FAILURE_MENU = By.cssSelector(".cdk-overlay-pane .mat-mdc-menu-panel, .cdk-overlay-pane .mat-menu-panel");
+    private static final By OPEN_RECEIPT_MENU_TRIGGER = By.cssSelector(
+            "app-receipts [aria-haspopup='menu'][aria-expanded='true'], "
+                    + "app-receipts [aria-expanded='true'][aria-controls]");
     private static final By RECEIPTS_HEADING = By.xpath(
             "//app-receipts//h1[contains(normalize-space(),'Post-Receipts')] | //h1[contains(normalize-space(),'Post-Receipts')]");
     private static final By RECEIPT_CLOSE = By.xpath("//app-receipts//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]");
@@ -799,6 +802,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             Set<String> problems) {
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
+                if (isFailureReasonMenuOpen()) {
+                    closeFailureReasonMenu(rowIndex);
+                }
+
                 List<WebElement> rows = visibleReceiptRows();
                 WebElement row = findReceiptRowByKey(rows, receiptKey, rowIndex);
                 if (row == null) {
@@ -816,6 +823,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 }
 
                 scrollIntoView(icon);
+
                 try {
                     new Actions(driver).moveToElement(icon).click().perform();
                 } catch (Exception e) {
@@ -823,11 +831,18 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 }
 
                 String reason = readFailureReason();
-                if (!reason.isBlank()) {
-                    return reason;
-                }
 
-                if (attempt == 3) {
+                if (!reason.isBlank()) {
+                    if (!closeFailureReasonMenu(rowIndex)) {
+                        if (attempt == 3) {
+                            problems.add("FAILED receipt '" + receiptKey
+                                    + "' reason was read, but its error menu could not be closed");
+                            return "";
+                        }
+                    } else {
+                        return reason;
+                    }
+                } else if (attempt == 3) {
                     problems.add("FAILED receipt '" + receiptKey
                             + "' opened no failure reason after 3 attempts");
                 }
@@ -849,7 +864,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
 
             if (attempt < 3) {
-                pause(300L * attempt);
+                pause(150L * attempt);
             }
         }
 
@@ -1014,41 +1029,77 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
      * a warning, because a still-open menu makes the next row read return the previous reason.
      */
     private boolean closeFailureReasonMenu(int rowIndex) {
-        for (int attempt = 0; attempt < 3 && isFailureReasonMenuOpen(); attempt++) {
-            try {
-                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
-            } catch (Exception ignored) {
-            }
-            if (waitForMenuClosed()) return true;
+        if (!isFailureReasonMenuOpen()) {
+            return true;
+        }
 
-            // Never click <body>: its centre can hit a row action and navigate away.
-            for (By safeTarget : List.of(MENU_BACKDROP, RECEIPTS_HEADING)) {
-                try {
-                    WebElement target = visibleElement(safeTarget);
-                    if (target == null) continue;
-                    new Actions(driver).moveToElement(target).click().perform();
-                    if (waitForMenuClosed()) return true;
-                } catch (Exception ignored) {
-                }
-            }
-
-            // The icon is a Material menu trigger, so clicking it again toggles the menu shut.
-            // This is the one dismissal the component itself guarantees.
+        for (int attempt = 1; attempt <= 4; attempt++) {
             try {
-                List<WebElement> rows = visibleReceiptRows();
-                if (rowIndex < rows.size()) {
-                    WebElement icon = visibleInside(rows.get(rowIndex), RECEIPT_ERROR_ICON);
-                    if (icon != null) {
-                        scrollIntoView(icon);
-                        new Actions(driver).moveToElement(icon).click().perform();
-                        if (waitForMenuClosed()) return true;
+                WebElement openTrigger = visibleElement(OPEN_RECEIPT_MENU_TRIGGER);
+                if (openTrigger != null) {
+                    try {
+                        jsClick(openTrigger);
+                    } catch (Exception ignored) {
+                        new Actions(driver).moveToElement(openTrigger).click().perform();
                     }
                 }
             } catch (Exception ignored) {
             }
+
+            if (waitForMenuClosedFast()) {
+                return true;
+            }
+
+            try {
+                new Actions(driver).sendKeys(Keys.ESCAPE).perform();
+            } catch (Exception ignored) {
+            }
+
+            if (waitForMenuClosedFast()) {
+                return true;
+            }
+
+            try {
+                ((JavascriptExecutor) driver).executeScript(
+                        "document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',keyCode:27,which:27,bubbles:true}));");
+            } catch (Exception ignored) {
+            }
+
+            if (waitForMenuClosedFast()) {
+                return true;
+            }
+
+            try {
+                List<WebElement> rows = visibleReceiptRows();
+                if (rowIndex >= 0 && rowIndex < rows.size()) {
+                    WebElement icon = visibleInside(rows.get(rowIndex), RECEIPT_ERROR_ICON);
+                    if (icon != null) {
+                        try {
+                            jsClick(icon);
+                        } catch (Exception ignored) {
+                            new Actions(driver).moveToElement(icon).click().perform();
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
+            if (waitForMenuClosedFast()) {
+                return true;
+            }
         }
 
         return !isFailureReasonMenuOpen();
+    }
+
+    private boolean waitForMenuClosedFast() {
+        try {
+            new WebDriverWait(driver, java.time.Duration.ofMillis(1200))
+                    .until(d -> d.findElements(FAILURE_MENU).stream().noneMatch(this::isDisplayed));
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     private boolean isFailureReasonMenuOpen() {
