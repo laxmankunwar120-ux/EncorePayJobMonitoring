@@ -85,7 +85,7 @@ public class AdminJobsPage extends BasePage {
     private static final By RECEIPT_SHOW_FILTER = By.xpath("//app-receipts//button[contains(normalize-space(),'Show Filter')]");
     private static final By RECEIPT_HIDE_FILTER = By.xpath("//app-receipts//button[contains(normalize-space(),'Hide Filter')]");
     private static final By RECEIPT_DATE = By.cssSelector("app-receipts input[name='receiptDate']");
-    private static final By LMS_POSTING_STATUS = By.cssSelector("app-receipts select[name='lmsPostingStatus']");
+    private static final By LMS_POSTING_STATUS = By.xpath("//select[@name='lmsPostingStatus']" + " | //select[@id='lmsPostingStatus']" + " | //select[contains(@name,'lms') or contains(@name,'status') or contains(@name,'posting')]" + " | //app-receipts//table//select" + " | (//app-receipts//div//select)[1]");
     private static final By RECEIPT_SEARCH = By.xpath("//app-receipts//button[normalize-space()='Search']");
     private static final By RECEIPT_ROWS = By.cssSelector("app-receipts app-custom-table table.table-box tbody tr");
     private static final By RECEIPT_PAGINATOR_RANGE = By.cssSelector(
