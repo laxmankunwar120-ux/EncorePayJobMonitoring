@@ -1281,6 +1281,12 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                         + captured + " receipt failure reasons.");
     }
 
+    private void ensureJobDetailsPageAfterPostingLogRetry() {
+        waitForJobDetailsPage(JOB_POST_RECEIPTS);
+        waitForState("the PostingLogs action after retry recovery",
+                d -> visibleElement(POSTING_LOGS_ACTION) != null);
+    }
+
     private PostingLogScan capturePostingLogFailureReasonsOnce(JobStatus status) {
         WebElement postingLogs = visibleElement(POSTING_LOGS_ACTION);
         if (postingLogs == null) {
@@ -1344,9 +1350,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
                         WebElement row = currentRows.get(index);
                         String rowKey = postingLogRowKey(row, index, page);
-                        if (!processedKeys.add(rowKey)) {
-                            break;
-                        }
 
                         List<WebElement> cells = row.findElements(By.xpath("./td"));
                         if (cells.isEmpty()) break;
@@ -1378,9 +1381,13 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                             failedRecord = !reason.isBlank() || !failureCode.isBlank();
                         }
 
-                        if (!failedRecord) break;
+                        if (!failedRecord) {
+                            processedKeys.add(rowKey);
+                            break;
+                        }
 
                         scan.failedRecords++;
+                        processedKeys.add(rowKey);
 
                         if (!reason.isBlank()) {
                             scan.reasons.add(
@@ -1527,22 +1534,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
 
         return "ROW-LOG:" + (page == null ? "" : page.range) + "#" + Math.max(index, 0);
-    }
-
-    private Map<String, Integer> headerIndexesFromPostingLogTable(WebElement row) {
-        Map<String, Integer> indexes = new LinkedHashMap<>();
-        try {
-            WebElement table = row.findElement(By.xpath("./ancestor::table[1]"));
-            List<WebElement> headers = table.findElements(By.xpath(".//thead//th"));
-            for (int i = 0; i < headers.size(); i++) {
-                String header = canonical(headers.get(i).getText());
-                if (!header.isBlank()) {
-                    indexes.putIfAbsent(header, i);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return indexes;
     }
 
     private static final class PostingLogScan {
