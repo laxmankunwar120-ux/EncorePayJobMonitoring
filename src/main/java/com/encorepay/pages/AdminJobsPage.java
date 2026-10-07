@@ -960,7 +960,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         closeExecutionModalUsingUi();
 
-        if (JOB_POST_RECEIPTS.equalsIgnoreCase(jobName) && status.getFailedCount() > 0) {
+        boolean postingLogsRequired = JOB_POST_RECEIPTS.equalsIgnoreCase(jobName)
+                && (receiptPostingFailure || partialReceiptOutcome);
+
+        if (postingLogsRequired) {
             status.clearFailureReasons();
             capturePostingLogFailureReasons(jobName, status);
         }
@@ -1040,7 +1043,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             String previousSignature = "";
             int pageGuard = 0;
 
-            while (pageGuard++ < 100) {
+            while (pageGuard++ < 25) {
                 if (!isPostingLogsModalOpen()) {
                     throw new IllegalStateException("PostingLogs modal closed before all receipt records were captured.");
                 }
@@ -1087,9 +1090,11 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
                         String statusText = receiptStatus.toUpperCase(Locale.ROOT);
                         boolean failedRecord = statusText.contains("FAIL")
-                                || statusText.contains("PARTIAL")
-                                || !reason.isBlank()
-                                || !failureCode.isBlank();
+                                || statusText.contains("PARTIAL");
+
+                        if (!failedRecord && receiptStatus.isBlank()) {
+                            failedRecord = !reason.isBlank() || !failureCode.isBlank();
+                        }
 
                         if (!failedRecord) continue;
 
@@ -1119,7 +1124,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 String beforeSignature = postingLogRowsSignature();
                 clickAndWait(next);
 
-                wait.until(d -> {
+                shortWait.until(d -> {
                     if (!isPostingLogsModalOpen()) return false;
                     String after = readPostingLogRange();
                     String afterSignature = postingLogRowsSignature();
@@ -1132,10 +1137,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
             for (String reason : reasons) {
                 status.addFailureReason(reason);
-            }
-
-            if (failedRecordCount > 0) {
-                status.setFailedCount(failedRecordCount);
             }
 
             if (!reasons.isEmpty()) {
@@ -1157,12 +1158,12 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     }
 
     private void waitForPostingLogsModal() {
-        wait.until(d -> isPostingLogsModalOpen());
+        shortWait.until(d -> isPostingLogsModalOpen());
         waitForPostingLogRows();
     }
 
     private void waitForPostingLogRows() {
-        wait.until(d -> !visiblePostingLogRows().isEmpty() || readPostingLogRange().matches(".*\\bof\\s+\\d+.*"));
+        shortWait.until(d -> !visiblePostingLogRows().isEmpty() || readPostingLogRange().matches(".*\\bof\\s+\\d+.*"));
     }
 
     private List<WebElement> visiblePostingLogRows() {
