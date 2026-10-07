@@ -190,6 +190,13 @@ public class LoginPage extends BasePage {
         signInButton.click();
 
         wait.until(d -> !d.getCurrentUrl().toLowerCase(Locale.ROOT).contains(SSO_HOST));
+        
+        // Wait for URL to change away from signin page
+        wait.until(d -> {
+            String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
+            return !url.contains("#/signin") && !url.contains("/signin");
+        });
+        
         waitForLoginOutcome();
         waitForPageLoad();
 

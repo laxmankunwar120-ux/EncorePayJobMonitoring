@@ -146,8 +146,16 @@ private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
         this.jobsPageWait = wait;
     }
 
-    public void navigateToAdminJobs() {
+public void navigateToAdminJobs() {
         if (isJobsPageLoaded()) return;
+        
+        // Check if stuck on signin page
+        String url = driver.getCurrentUrl().toLowerCase(Locale.ROOT);
+        if (url.contains("#/signin") || url.contains("/signin")) {
+            throw new IllegalStateException("Application is still on sign-in page after login. URL: " + driver.getCurrentUrl()
+                    + ". Login may have failed or session not established.");
+        }
+        
         awaitAppBootstrap();
         hoverAdminMenu();
         clickJobInAdminMenu();
@@ -1352,8 +1360,16 @@ private static final Pattern STATUS_LINE = Pattern.compile(
         navigateToAdminJobs();
     }
 
-    private void ensureJobsPage() {
+private void ensureJobsPage() {
         validateSessionAndWindow();
+        
+        // Check if stuck on signin page
+        String url = driver.getCurrentUrl().toLowerCase(Locale.ROOT);
+        if (url.contains("#/signin") || url.contains("/signin")) {
+            throw new IllegalStateException("Application is on sign-in page, cannot access Admin Jobs. URL: " + driver.getCurrentUrl()
+                    + ". Login may have failed or session expired.");
+        }
+        
         if (isJobsPageLoaded()) return;
         recoverToJobsPage();
         if (isJobsPageLoaded()) return;
