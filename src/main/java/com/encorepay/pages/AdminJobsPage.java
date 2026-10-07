@@ -530,7 +530,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         // actually acts on. Waiting for the rows to change instead would stall on any client
         // whose server-side filter legitimately returns an identical page.
         waitForState("the '" + expectedStatus + "' receipt search to be applied", d -> {
-            WebElement selectElement = d.findElement(LMS_POSTING_STATUS);
+            WebElement selectElement = findVisibleLmsPostingStatusSelect();
+            if (selectElement == null) {
+                return false;
+            }
 
             String selectedStatus = new Select(selectElement)
                 .getFirstSelectedOption()
