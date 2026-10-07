@@ -45,12 +45,14 @@ public class AdminJobsPage extends BasePage {
     
     private static final By JOB_ROWS_FALLBACK = By.cssSelector("table.table-box tbody tr");
 
-    static {
+static {
         JOB_ALIASES.put(JOB_POST_RECEIPTS, List.of(JOB_POST_RECEIPTS, "Post Receipt Job"));
         JOB_ALIASES.put(JOB_COLLECTION_ITEMS, List.of(
             JOB_COLLECTION_ITEMS, "Download Collection Items Job"));
         JOB_ALIASES.put(JOB_UPCOMING_DEMAND, List.of(
-            JOB_UPCOMING_DEMAND, "Encore Up Coming Demand Job"));
+            JOB_UPCOMING_DEMAND, "Encore Up Coming Demand Job",
+            "Upcoming Demand Job", "Up Coming Demand Job",
+            "Encore Upcoming Demand Job", "Encore Up Coming Demands"));
     }
 
     private static final By JOB_ROWS = By.cssSelector(
@@ -159,7 +161,7 @@ private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
         }
     }
 
-    public List<JobStatus> monitorAllConfiguredJobs() {
+public List<JobStatus> monitorAllConfiguredJobs() {
         String clientName = config.getClientName();
         if (clientName == null || clientName.isBlank()) {
             throw new IllegalStateException("Client name could not be resolved from the application URL.");
@@ -189,10 +191,12 @@ private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
         try {
             action.markStep("Encore Up Coming Demands Job");
             ensureJobsPage();
-            if (findUpcomingDemandRow() != null) {
+            WebElement upcomingRow = findUpcomingDemandRow();
+            if (upcomingRow != null) {
                 results.add(monitorExecutionJob(JOB_UPCOMING_DEMAND, clientName));
             } else {
-                System.out.println(" Skip Encore Up Coming Demands Job is not configured for client " + clientName + ".");
+                System.out.println(" Upcoming Demand Job not configured for client " + clientName + " (row not found).");
+                results.add(notConfiguredJobPlaceholder(clientName, JOB_UPCOMING_DEMAND));
             }
         } catch (Exception e) {
             System.out.println("[WARN] Upcoming Demands Job capture error for " + clientName + ": " + e.getMessage());
@@ -204,7 +208,7 @@ private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
     }
 
     
-    private JobStatus unavailableJobPlaceholder(String clientName, String jobName, Exception cause) {
+private JobStatus unavailableJobPlaceholder(String clientName, String jobName, Exception cause) {
         JobStatus unavailable = new JobStatus();
         unavailable.setClientName(clientName);
         unavailable.setJobName(jobName);
@@ -213,6 +217,16 @@ private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
         unavailable.setJobFailureReason("Monitoring unavailable at step '" + action.currentStep() + "': "
                 + cause.getClass().getSimpleName() + ": " + safeText(cause));
         return unavailable;
+    }
+
+    private JobStatus notConfiguredJobPlaceholder(String clientName, String jobName) {
+        JobStatus notConfigured = new JobStatus();
+        notConfigured.setClientName(clientName);
+        notConfigured.setJobName(jobName);
+        notConfigured.setStatus("N/A");
+        notConfigured.setDateTime("N/A");
+        notConfigured.setJobFailureReason("Job not configured for this client in the UI");
+        return notConfigured;
     }
 
     private String safeText(Throwable cause) {
