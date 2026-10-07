@@ -1988,6 +1988,35 @@ private void waitForJobDetailsPage(String jobName) {
         return value == null ? "" : value.replaceAll("\\s+", " ").trim();
     }
 
+    private String cell(List<WebElement> cells, Map<String, Integer> headers, String... names) {
+        if (cells == null || cells.isEmpty() || names == null) return "";
+
+        for (String name : names) {
+            if (name == null || name.isBlank()) continue;
+
+            Integer index = headers == null ? null : headers.get(canonical(name));
+            if (index == null && headers != null) {
+                String target = canonical(name);
+                for (Map.Entry<String, Integer> entry : headers.entrySet()) {
+                    if (canonical(entry.getKey()).equals(target)) {
+                        index = entry.getValue();
+                        break;
+                    }
+                }
+            }
+
+            if (index != null && index >= 0 && index < cells.size()) {
+                try {
+                    String value = clean(cells.get(index).getText());
+                    if (!value.isBlank()) return value;
+                } catch (StaleElementReferenceException ignored) {
+                }
+            }
+        }
+
+        return "";
+    }
+
 /**
      * Named for what it does. The old signature took a millisecond value that was ignored, which
      * hid the fact that these points waited on UI stability rather than on a fixed delay.
