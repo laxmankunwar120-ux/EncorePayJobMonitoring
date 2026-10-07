@@ -1,13 +1,6 @@
 name: EncorePay Job Monitoring
 
 on:
-  schedule:
-    - cron: "0 7 * * *"
-      timezone: "Asia/Kolkata"
-
-    - cron: "0 22 * * *"
-      timezone: "Asia/Kolkata"
-
   workflow_dispatch:
 concurrency:
   group: encorepay-job-monitoring
