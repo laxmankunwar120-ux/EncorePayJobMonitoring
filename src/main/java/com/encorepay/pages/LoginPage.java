@@ -166,48 +166,85 @@ public class LoginPage extends BasePage {
 
         if (isAuthenticatedAreaVisible()) return;
 
-        WebElement ssoButton = wait.until(ExpectedConditions.elementToBeClickable(SSO_BUTTON));
-        ssoButton.click();
-        action.captureStep("SSO Sign-In Clicked");
+        // Retry SSO login up to 2 times (handles redirect back to signin)
+        RuntimeException lastError = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                WebElement ssoButton = wait.until(ExpectedConditions.elementToBeClickable(SSO_BUTTON));
+                ssoButton.click();
+                action.captureStep("SSO Sign-In Clicked (attempt " + attempt + ")");
 
-        wait.until(ExpectedConditions.urlContains(SSO_HOST));
+                wait.until(ExpectedConditions.urlContains(SSO_HOST));
 
-        WebElement employeeField = wait.until(
-            ExpectedConditions.visibilityOfElementLocated(SSO_EMPLOYEE_ID)
-        );
-        employeeField.clear();
-        employeeField.sendKeys(employeeId);
+                WebElement employeeField = wait.until(
+                    ExpectedConditions.visibilityOfElementLocated(SSO_EMPLOYEE_ID)
+                );
+                employeeField.clear();
+                employeeField.sendKeys(employeeId);
 
-        WebElement ssoPasswordField = wait.until(
-            ExpectedConditions.visibilityOfElementLocated(SSO_PASSWORD)
-        );
-        ssoPasswordField.clear();
-        ssoPasswordField.sendKeys(password);
+                WebElement ssoPasswordField = wait.until(
+                    ExpectedConditions.visibilityOfElementLocated(SSO_PASSWORD)
+                );
+                ssoPasswordField.clear();
+                ssoPasswordField.sendKeys(password);
 
-        action.captureStep("SSO Credentials Entered");
+                action.captureStep("SSO Credentials Entered (attempt " + attempt + ")");
 
-        WebElement signInButton = wait.until(ExpectedConditions.elementToBeClickable(SSO_LOGIN_BUTTON));
-        signInButton.click();
+                WebElement signInButton = wait.until(ExpectedConditions.elementToBeClickable(SSO_LOGIN_BUTTON));
+                signInButton.click();
 
-        wait.until(d -> !d.getCurrentUrl().toLowerCase(Locale.ROOT).contains(SSO_HOST));
-        
-        // Wait for URL to change away from signin page
-        wait.until(d -> {
-            String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
-            return !url.contains("#/signin") && !url.contains("/signin");
-        });
-        
-        waitForLoginOutcome();
-        waitForPageLoad();
+                wait.until(d -> !d.getCurrentUrl().toLowerCase(Locale.ROOT).contains(SSO_HOST));
+                
+                // Wait for URL to change away from signin page
+                wait.until(d -> {
+                    String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
+                    return !url.contains("#/signin") && !url.contains("/signin");
+                });
+                
+                // For SSO: wait for actual authenticated app (Admin/Collections/Dashboard nav), not just any nav
+                wait.until(d -> {
+                    try {
+                        String url = d.getCurrentUrl().toLowerCase(Locale.ROOT);
+                        // Must be past signin AND have authenticated navigation
+                        return !url.contains("#/signin") && !url.contains("/signin") 
+                            && isAuthenticatedApplicationVisible();
+                    } catch (Exception e) {
+                        return false;
+                    }
+                });
+                
+                waitForLoginOutcome();
+                waitForPageLoad();
 
-        if (!isLoginSuccessful()) {
-            throw new IllegalStateException(
-                "SSO login failed. " + getFailureContext()
-            );
+                if (!isLoginSuccessful()) {
+                    throw new IllegalStateException(
+                        "SSO login failed. " + getFailureContext()
+                    );
+                }
+
+                action.recordVerification("User reached the authenticated area after sign-in.");
+                action.captureStep("SSO Login Success");
+                return; // Success - exit retry loop
+                
+            } catch (RuntimeException e) {
+                lastError = e;
+                System.out.println("[WARN] SSO login attempt " + attempt + " failed: " + e.getMessage());
+                
+                if (attempt < 2) {
+                    // Reload and try again
+                    try {
+                        driver.navigate().refresh();
+                        awaitAppBootstrap();
+                        waitForLoginOrAuthenticatedPage();
+                    } catch (Exception refreshError) {
+                        System.out.println("[WARN] Page refresh failed: " + refreshError.getMessage());
+                    }
+                }
+            }
         }
-
-        action.recordVerification("User reached the authenticated area after sign-in.");
-        action.captureStep("SSO Login Success");
+        
+        // All attempts failed
+        throw new IllegalStateException("SSO login failed after 2 attempts. Last error: " + lastError.getMessage(), lastError);
     }
     public void login() {
         login(config.getUsername(), config.getPassword());
