@@ -506,55 +506,69 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
                 }
             }
 
-            for (int index = 0; index < rowCount; index++) {
+for (int index = 0; index < rowCount; index++) {
                 validateSessionAndWindow();
 
-                List<WebElement> currentRows = visibleReceiptRows();
-
-                if (index >= currentRows.size()) {
-                    problems.add("FAILED receipt row " + (index + 1)
-                            + " disappeared before its failure reason could be read");
-                    break;
-                }
-
-                WebElement row = currentRows.get(index);
-                WebElement icon = visibleInside(row, RECEIPT_ERROR_ICON);
-
-                if (icon == null) {
-                    problems.add("FAILED receipt row " + (index + 1)
-                            + " has no error icon to open");
-                    continue;
-                }
-
-                String rowSignature = buildRowSignature(row, index);
-                if (!seenRowSignatures.add(rowSignature)) {
-                    problems.add("Duplicate receipt row detected at index " + index + " (signature: " + rowSignature + "), skipping to prevent infinite loop");
-                    continue;
-                }
-
-                boolean reasonCaptured = false;
+                String rowSignature = "";
                 String reason = "";
                 int maxAttempts = 3;
+                boolean reasonCaptured = false;
 
                 for (int attempt = 0; attempt < maxAttempts && !reasonCaptured; attempt++) {
-                    scrollIntoViewSmooth(icon);
-                    fastClick(icon);
+                    List<WebElement> currentRows = visibleReceiptRows();
 
-                    reason = readFailureReason();
+                    if (index >= currentRows.size()) {
+                        problems.add("FAILED receipt row " + (index + 1)
+                                + " disappeared before its failure reason could be read");
+                        break;
+                    }
 
-                    if (!reason.isBlank()) {
-                        reasons.add(trimReason(reason));
-                        reasonCaptured = true;
-                    } else if (attempt < maxAttempts - 1) {
-                        awaitUiStability();
-                        List<WebElement> refreshedRows = visibleReceiptRows();
-                        if (index < refreshedRows.size()) {
-                            icon = visibleInside(refreshedRows.get(index), RECEIPT_ERROR_ICON);
+                    WebElement row = currentRows.get(index);
+                    WebElement icon = visibleInside(row, RECEIPT_ERROR_ICON);
+
+                    if (icon == null) {
+                        problems.add("FAILED receipt row " + (index + 1)
+                                + " has no error icon to open");
+                        break;
+                    }
+
+                    rowSignature = buildRowSignature(row, index);
+                    if (!seenRowSignatures.add(rowSignature)) {
+                        problems.add("Duplicate receipt row detected at index " + index + " (signature: " + rowSignature + "), skipping to prevent infinite loop");
+                        break;
+                    }
+
+                    try {
+                        scrollIntoViewSmooth(icon);
+                        fastClick(icon);
+                        try { Thread.sleep(500); } catch (InterruptedException ignored) { }
+
+                        reason = readFailureReason();
+
+                        if (!reason.isBlank()) {
+                            reasons.add(trimReason(reason));
+                            reasonCaptured = true;
+                        } else if (attempt < maxAttempts - 1) {
+                            awaitUiStability();
                         }
+                    } catch (StaleElementReferenceException e) {
+                        if (attempt < maxAttempts - 1) {
+                            awaitUiStability();
+                            continue;
+                        }
+                        problems.add("FAILED receipt row " + (index + 1)
+                                + " became stale before failure reason could be read");
+                    } catch (RuntimeException e) {
+                        if (attempt < maxAttempts - 1) {
+                            awaitUiStability();
+                            continue;
+                        }
+                        problems.add("FAILED receipt row " + (index + 1)
+                                + " error while reading failure reason: " + e.getClass().getSimpleName());
                     }
                 }
 
-                if (!reasonCaptured) {
+                if (!reasonCaptured && rowSignature.isEmpty()) {
                     problems.add("FAILED receipt row " + (index + 1)
                             + " opened no failure reason after " + maxAttempts + " attempts");
                 }
