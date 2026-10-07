@@ -1134,6 +1134,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 status.addFailureReason(reason);
             }
 
+            if (failedRecordCount > 0) {
+                status.setFailedCount(failedRecordCount);
+            }
+
             if (!reasons.isEmpty()) {
                 status.setJobFailureReason(null);
             } else {
