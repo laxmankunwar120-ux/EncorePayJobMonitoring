@@ -259,7 +259,7 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
         }
     }
 
-    private JobStatus monitorPostReceiptJob(String clientName) {
+private JobStatus monitorPostReceiptJob(String clientName) {
         requireActiveSession(JOB_POST_RECEIPTS);
 
         JobStatus status = new JobStatus();
@@ -294,7 +294,16 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
 
         closeReceiptPageUsingUi();
         ensureJobsPage();
-        captureLatestExecutionFromJobsList(JOB_POST_RECEIPTS, status);
+        
+        // Capture execution status — preserve receipt data even if this fails
+        try {
+            captureLatestExecutionFromJobsList(JOB_POST_RECEIPTS, status);
+        } catch (Exception e) {
+            System.out.println("[WARN] Post Receipts Job execution status capture failed, preserving receipt data: " + e.getMessage());
+            status.setStatus("N/A");
+            status.setDateTime("N/A");
+            status.setJobFailureReason("Receipt data captured (Failed=" + failed.totalCount + ", Pending=" + pending.totalCount + ") but execution status unavailable: " + safeText(e));
+        }
         return status;
     }
 
