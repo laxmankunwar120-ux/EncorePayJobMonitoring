@@ -61,6 +61,13 @@ public final class GoogleChatNotifier {
 
         try {
             GoogleChatApiNotifier.send(webhook, htmlReportPath, message);
+            try {
+                java.nio.file.Path marker = java.nio.file.Path.of("test-output", "google-chat-sent.marker");
+                java.nio.file.Files.createDirectories(marker.getParent());
+                java.nio.file.Files.writeString(marker, LocalDateTime.now(new ConfigReader().getBusinessZone()).toString());
+            } catch (Exception markerError) {
+                System.err.println("[WARN] Google Chat success marker could not be written: " + markerError.getMessage());
+            }
         } catch (Exception e) {
             System.err.println("[ERROR] Google Chat notification failed: " + e.getMessage());
             e.printStackTrace();
