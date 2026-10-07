@@ -363,11 +363,3 @@ jobs:
               print("[INFO] Google Chat webhook fallback notification sent.")
           PY
 
-      - name: Archive screenshots
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-${{ github.run_number }}
-          path: screenshots/
-          if-no-files-found: ignore
-          retention-days: 7
