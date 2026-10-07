@@ -126,6 +126,8 @@ public class AdminJobsPage extends BasePage {
     private static final By RECEIPTS_HEADING = By.xpath(
             "//app-receipts//h1[contains(normalize-space(),'Post-Receipts')] | //h1[contains(normalize-space(),'Post-Receipts')]");
     private static final By RECEIPT_CLOSE = By.xpath("//app-receipts//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]");
+    private static final By RECEIPT_SAFE_OUTSIDE_TARGET = By.xpath(
+            "//app-receipts//span[contains(@class,'text-xl') and contains(@class,'font-bold')]");
 
     private static final By JOB_DETAILS_ROOT = By.cssSelector("app-job-details");
     private static final By JOB_DETAIL_ROWS = By.cssSelector("app-job-details app-custom-table table.table-box tbody tr");
@@ -1035,21 +1037,18 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
-                ((JavascriptExecutor) driver).executeScript(
-                        "var b=document.body;"
-                                + "if(b){"
-                                + " ['mousedown','mouseup','click'].forEach(function(t){"
-                                + " b.dispatchEvent(new MouseEvent(t,{view:window,bubbles:true,cancelable:true,button:0}));"
-                                + " });"
-                                + "}"
-                                + "var e=document.documentElement;"
-                                + "if(e){e.dispatchEvent(new MouseEvent('click',{view:window,bubbles:true,cancelable:true,button:0}));}"
-                );
-            } catch (Exception ignored) {
-            }
+                WebElement safeTarget = visibleElement(RECEIPT_SAFE_OUTSIDE_TARGET);
+                if (safeTarget != null) {
+                    new Actions(driver)
+                            .moveToElement(safeTarget)
+                            .click()
+                            .perform();
 
-            if (waitForMenuClosedFast()) {
-                return true;
+                    if (waitForMenuClosedFast()) {
+                        return true;
+                    }
+                }
+            } catch (Exception ignored) {
             }
 
             try {
@@ -1062,30 +1061,34 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
 
             try {
-                WebElement openTrigger = visibleElement(OPEN_RECEIPT_MENU_TRIGGER);
-                if (openTrigger != null) {
-                    jsClick(openTrigger);
-                }
-            } catch (Exception ignored) {
-            }
+                List<WebElement> backdrops = driver.findElements(MENU_BACKDROP);
+                for (WebElement backdrop : backdrops) {
+                    if (!isDisplayed(backdrop)) continue;
+                    new Actions(driver)
+                            .moveToElement(backdrop)
+                            .click()
+                            .perform();
 
-            if (waitForMenuClosedFast()) {
-                return true;
-            }
-
-            try {
-                List<WebElement> rows = visibleReceiptRows();
-                if (rowIndex >= 0 && rowIndex < rows.size()) {
-                    WebElement icon = visibleInside(rows.get(rowIndex), RECEIPT_ERROR_ICON);
-                    if (icon != null) {
-                        jsClick(icon);
+                    if (waitForMenuClosedFast()) {
+                        return true;
                     }
                 }
             } catch (Exception ignored) {
             }
 
-            if (waitForMenuClosedFast()) {
-                return true;
+            try {
+                WebElement openTrigger = visibleElement(OPEN_RECEIPT_MENU_TRIGGER);
+                if (openTrigger != null) {
+                    new Actions(driver)
+                            .moveToElement(openTrigger)
+                            .click()
+                            .perform();
+
+                    if (waitForMenuClosedFast()) {
+                        return true;
+                    }
+                }
+            } catch (Exception ignored) {
             }
         }
 
@@ -1094,7 +1097,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private boolean waitForMenuClosedFast() {
         try {
-            new WebDriverWait(driver, java.time.Duration.ofMillis(900))
+            new WebDriverWait(driver, java.time.Duration.ofMillis(500))
                     .until(d -> d.findElements(FAILURE_MENU).stream().noneMatch(this::isDisplayed));
             return true;
         } catch (RuntimeException e) {
