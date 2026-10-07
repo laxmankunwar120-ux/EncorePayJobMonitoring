@@ -1036,6 +1036,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
             List<String> reasons = new ArrayList<>();
             Set<String> pages = new LinkedHashSet<>();
+            int failedRecordCount = 0;
             String previousSignature = "";
             int pageGuard = 0;
 
