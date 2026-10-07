@@ -102,7 +102,16 @@ public final class GoogleChatNotifier {
         long partialSuccessJobs = jobs.stream().filter(j -> isPartialSuccess(j.getStatus())).count();
         long notRunJobs = jobs.stream().filter(j -> isNotRun(j.getStatus())).count();
 
+        // Total receipt counts
+        int totalFailedReceipts = jobs.stream()
+                .filter(j -> POST_RECEIPTS.equalsIgnoreCase(j.getJobName()))
+                .mapToInt(JobStatus::getFailedCount).sum();
+        int totalPendingReceipts = jobs.stream()
+                .filter(j -> POST_RECEIPTS.equalsIgnoreCase(j.getJobName()))
+                .mapToInt(JobStatus::getPendingCount).sum();
+
         message.append(String.format("%-25s: %d\n", "Total Clients", totalClients));
+        message.append(String.format("%-25s: %d\n", "Monitored Clients", monitoredClients));
         message.append(String.format("%-25s: %d\n", "Successful Jobs", successfulJobs));
         if (failedJobs > 0) {
             message.append(String.format("%-25s: %d\n", "Failed Jobs", failedJobs));
@@ -112,6 +121,12 @@ public final class GoogleChatNotifier {
         }
         if (notRunJobs > 0) {
             message.append(String.format("%-25s: %d\n", "Not Run / Not Configured", notRunJobs));
+        }
+        if (totalFailedReceipts > 0) {
+            message.append(String.format("%-25s: %d\n", "Total Failed Receipts", totalFailedReceipts));
+        }
+        if (totalPendingReceipts > 0) {
+            message.append(String.format("%-25s: %d\n", "Total Pending Receipts", totalPendingReceipts));
         }
 
         message.append("\n");
@@ -187,6 +202,21 @@ public final class GoogleChatNotifier {
                 sb.append(String.format("%-20s %-14s %s\n",
                         client, status, dateTime));
             }
+
+            // Show job failure reason if present
+            String reason = safe(job.getJobFailureReason());
+            if (!reason.isBlank()) {
+                sb.append("    Reason: ").append(truncate(reason, 80)).append("\n");
+            }
+        }
+
+        // Show total receipts for Post Receipts Job
+        if (includeCounts && !jobList.isEmpty()) {
+            int totalFailed = jobList.stream().mapToInt(JobStatus::getFailedCount).sum();
+            int totalPending = jobList.stream().mapToInt(JobStatus::getPendingCount).sum();
+            sb.append("-".repeat(72)).append("\n");
+            sb.append(String.format("%-20s %-14s %8d %8d\n",
+                    "TOTAL", "", totalFailed, totalPending));
         }
 
         sb.append("\n");
@@ -322,10 +352,10 @@ public final class GoogleChatNotifier {
 
     private static boolean isSuccessful(String status) {
         String value = safe(status).toUpperCase(Locale.ROOT).replace(" ", "_");
-        return value.contains("SUCCESS")
+        return (value.contains("SUCCESS")
                 || value.contains("COMPLETED")
-                || value.equals("SUCCEEDED")
-                || value.equals("PARTIALLY_SUCCESSFUL");
+                || value.equals("SUCCEEDED"))
+                && !value.equals("PARTIALLY_SUCCESSFUL");
     }
 
     private static boolean isFailed(JobStatus status) {
