@@ -222,6 +222,7 @@ jobs:
           import urllib.parse
           import urllib.request
           import uuid
+          import time
 
           webhook = os.environ["GOOGLE_CHAT_WEBHOOK_URL"]
           client_id = os.environ.get("GOOGLE_CHAT_OAUTH_CLIENT_ID", "")
@@ -243,14 +244,24 @@ jobs:
           )
 
           def post(url, data, headers):
-              req = urllib.request.Request(
-                  url,
-                  data=data,
-                  headers=headers,
-                  method="POST"
-              )
-              with urllib.request.urlopen(req, timeout=60) as response:
-                  return response.status, response.read().decode("utf-8", "replace")
+              last_error = None
+              for attempt in range(1, 5):
+                  try:
+                      req = urllib.request.Request(
+                          url,
+                          data=data,
+                          headers=headers,
+                          method="POST"
+                      )
+                      with urllib.request.urlopen(req, timeout=90) as response:
+                          return response.status, response.read().decode("utf-8", "replace")
+                  except Exception as exc:
+                      last_error = exc
+                      if attempt < 4:
+                          delay = attempt * 10
+                          print(f"[WARN] Google Chat request attempt {attempt} failed: {exc}. Retrying in {delay}s...")
+                          time.sleep(delay)
+              raise RuntimeError(f"Google Chat request failed after 4 attempts: {last_error}")
 
           if client_id and client_secret and refresh_token and report_file:
               token_body = urllib.parse.urlencode({
