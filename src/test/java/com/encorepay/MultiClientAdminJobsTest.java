@@ -38,6 +38,11 @@ public class MultiClientAdminJobsTest {
         System.out.println("[INIT] Cleaning old reports and screenshots before run...");
         ScreenshotUtil.cleanScreenshotsDirectory();
         JobMonitoringHtmlReport.cleanReportsDirectory();
+        try {
+            java.nio.file.Files.deleteIfExists(java.nio.file.Path.of("test-output", "google-chat-sent.marker"));
+        } catch (Exception e) {
+            System.out.println("[WARN] Could not clear Google Chat delivery marker: " + e.getMessage());
+        }
     }
 
     @Test(priority = 1, description = "Monitor all configured EncorePay clients sequentially")
