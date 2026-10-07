@@ -106,7 +106,8 @@ static {
                     + "app-job button[aria-label*='First page']");
     private static final By RECEIPT_ERROR_ICON = By.xpath(".//div[contains(@class,'material-symbols-rounded') and normalize-space()='error_outline']");
     private static final By MENU_BACKDROP = By.cssSelector(".cdk-overlay-backdrop, .cdk-overlay-dark-backdrop");
-    private static final By FAILURE_MENU = By.cssSelector(".cdk-overlay-pane .mat-mdc-menu-panel, .cdk-overlay-pane .mat-menu-panel");
+private static final By FAILURE_MENU = By.cssSelector(".cdk-overlay-pane .mat-mdc-menu-panel, .cdk-overlay-pane .mat-menu-panel");
+    private static final By FAILURE_MENU_CLOSE = By.xpath("//div[contains(@class,'cdk-overlay-pane')]//button[.//span[contains(@class,'material-symbols-rounded') and (normalize-space()='close' or normalize-space()='clear')]]");
     private static final By RECEIPTS_HEADING = By.xpath(
             "//app-receipts//h1[contains(normalize-space(),'Post-Receipts')] | //h1[contains(normalize-space(),'Post-Receipts')]");
     private static final By RECEIPT_CLOSE = By.xpath("//app-receipts//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]");
@@ -632,12 +633,24 @@ this.reasons = reasons;
 
     private boolean closeFailureReasonMenuInternal() {
         for (int attempt = 0; attempt < 3 && isFailureReasonMenuOpen(); attempt++) {
+            // Try to click close button inside the menu first
+            try {
+                WebElement closeBtn = visibleElement(FAILURE_MENU_CLOSE);
+                if (closeBtn != null) {
+                    fastClick(closeBtn);
+                    if (waitForMenuClosed()) return true;
+                }
+            } catch (Exception ignored) {
+            }
+
+            // Try ESC key
             try {
                 driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
             } catch (Exception ignored) {
             }
             if (waitForMenuClosed()) return true;
 
+            // Try clicking backdrop
             for (By safeTarget : List.of(MENU_BACKDROP, RECEIPTS_HEADING)) {
                 try {
                     WebElement target = visibleElement(safeTarget);
@@ -648,6 +661,7 @@ this.reasons = reasons;
                 }
             }
 
+            // Final ESC attempt
             try {
                 if (isFailureReasonMenuOpen()) {
                     driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
