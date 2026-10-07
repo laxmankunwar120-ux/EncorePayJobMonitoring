@@ -59,6 +59,14 @@ public class JobStatus {
 
     public String getJobFailureReason() { return jobFailureReason; }
 
+    public int getFailureReasonRecordCount() {
+        int total = 0;
+        for (Integer count : failureReasonCounts.values()) {
+            total += count == null ? 0 : count;
+        }
+        return total;
+    }
+
     public void clearFailureReasons() {
         failureReasonCounts.clear();
         failureReasonDisplay.clear();
