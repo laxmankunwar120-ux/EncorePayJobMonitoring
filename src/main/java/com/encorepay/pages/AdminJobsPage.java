@@ -557,13 +557,22 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         List<String> reasons = new ArrayList<>();
         Set<String> problems = new LinkedHashSet<>();
         Set<String> pages = new LinkedHashSet<>();
+        String previousSignature = "";
+        int pageGuard = 0;
 
-        while (true) {
+        while (pageGuard++ < 100) {
             String marker = readPaginatorRange();
+            String pageSignature = marker + "|" + receiptResultsSignature();
 
-            if (!marker.isBlank() && !pages.add(marker)) {
+            if (!pages.add(pageSignature) || (!marker.isBlank() && pages.stream().filter(x -> x.startsWith(marker + "|")).count() > 1)) {
                 break;
             }
+
+            if (marker.isBlank() && pageSignature.equals(previousSignature)) {
+                problems.add("FAILED receipt pagination stopped because the page did not change");
+                break;
+            }
+            previousSignature = pageSignature;
 
             int rowCount = visibleReceiptRows().size();
 
@@ -647,19 +656,20 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 break;
             }
 
-            String before = readPaginatorRange();
+            String beforeRange = readPaginatorRange();
+            String beforeSignature = receiptResultsSignature();
             clickAndWait(next);
 
             try {
-                // Waiting for the range alone would race the row re-render, so the new page's
-                // rows (or an explicit empty result) are required as well.
                 wait.until(d -> {
-                    String after = readPaginatorRange();
-                    boolean moved = !after.isBlank() && !after.equals(before);
-                    return moved && (!visibleReceiptRows().isEmpty() || isReceiptEmpty());
+                    String afterRange = readPaginatorRange();
+                    String afterSignature = receiptResultsSignature();
+                    boolean moved = !afterRange.isBlank() && !afterRange.equals(beforeRange);
+                    boolean changed = !afterSignature.isBlank() && !afterSignature.equals(beforeSignature);
+                    return (moved || changed) && (!visibleReceiptRows().isEmpty() || isReceiptEmpty());
                 });
             } catch (RuntimeException e) {
-                problems.add("Receipt paginator stopped advancing at range '" + before + "'");
+                problems.add("Receipt paginator stopped advancing at range '" + beforeRange + "'");
                 break;
             }
 
@@ -906,12 +916,22 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
             List<String> reasons = new ArrayList<>();
             Set<String> pages = new LinkedHashSet<>();
+            String previousSignature = "";
+            int pageGuard = 0;
 
-            while (true) {
+            while (pageGuard++ < 100) {
                 String range = readPostingLogRange();
-                if (!range.isBlank() && !pages.add(range)) {
+                String signature = range + "|" + postingLogRowsSignature();
+
+                if (!pages.add(signature)) {
                     break;
                 }
+
+                if (range.isBlank() && signature.equals(previousSignature)) {
+                    status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs pagination did not advance.");
+                    break;
+                }
+                previousSignature = signature;
 
                 List<WebElement> rows = driver.findElements(POSTING_LOG_ROWS);
                 boolean foundReason = false;
@@ -943,13 +963,17 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 }
 
                 String before = range;
+                String beforeSignature = postingLogRowsSignature();
                 clickAndWait(next);
                 try {
                     wait.until(d -> {
                         String after = readPostingLogRange();
-                        return !after.isBlank() && !after.equals(before);
+                        String afterSignature = postingLogRowsSignature();
+                        return (!after.isBlank() && !after.equals(before))
+                                || (!afterSignature.isBlank() && !afterSignature.equals(beforeSignature));
                     });
                 } catch (RuntimeException e) {
+                    status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs pagination stopped advancing at '" + before + "'.");
                     break;
                 }
             }
@@ -970,6 +994,19 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     + e.getClass().getSimpleName() + ": " + safeText(e));
             closePostingLogsModal();
         }
+    }
+
+    private String postingLogRowsSignature() {
+        StringBuilder signature = new StringBuilder();
+        for (WebElement row : driver.findElements(POSTING_LOG_ROWS)) {
+            try {
+                if (isDisplayed(row)) {
+                    signature.append(clean(row.getText())).append("||");
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return signature.toString();
     }
 
     private String readPostingLogRange() {
