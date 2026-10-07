@@ -100,6 +100,11 @@ public class AdminJobsPage extends BasePage {
     private static final By RECEIPT_NEXT_PAGE = By.cssSelector(
             "app-receipts div.paginator-container button[aria-label='Next page'], "
                     + "app-receipts button[aria-label*='Next page']");
+    private static final By RECEIPT_PAGE_SIZE_SELECT = By.cssSelector(
+            "app-receipts mat-paginator .mat-mdc-paginator-page-size-select, "
+                    + "app-receipts mat-paginator .mat-paginator-page-size-select");
+    private static final By PAGINATOR_PAGE_SIZE_OPTIONS = By.cssSelector(
+            ".cdk-overlay-pane mat-option, .cdk-overlay-pane .mat-mdc-option");
     private static final By JOB_PAGINATOR_RANGE = By.cssSelector(
             "app-job div.paginator-container .ct-range, app-job .ct-range, "
                     + "app-job mat-paginator .mat-mdc-paginator-range-label, "
@@ -126,8 +131,11 @@ public class AdminJobsPage extends BasePage {
     private static final By EXECUTION_MODAL_CLOSE = By.xpath("//div[contains(@class,'modal-wrapper')]//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]");
     private static final By POSTING_LOGS_ACTION = By.xpath("//app-job-details//button[normalize-space()='PostingLogs']");
     private static final By POSTING_LOGS_MODAL = By.xpath("//div[contains(@class,'modal-wrapper')][.//span[contains(normalize-space(),'Receipt Posting Logs')] or .//h1[contains(normalize-space(),'Receipt Posting Logs')]]");
-    private static final By POSTING_LOG_ROWS = By.cssSelector("app-receipt-posting-log app-custom-table table.table-box tbody tr, app-custom-table table.table-box tbody tr");
+    private static final By POSTING_LOG_ROWS = By.cssSelector("app-receipt-posting-log app-custom-table table.table-box tbody tr");
     private static final By POSTING_LOG_NEXT_PAGE = By.cssSelector("app-receipt-posting-log div.paginator-container button[aria-label='Next page'], app-receipt-posting-log button[aria-label*='Next page']");
+    private static final By POSTING_LOG_PAGE_SIZE_SELECT = By.cssSelector(
+            "app-receipt-posting-log mat-paginator .mat-mdc-paginator-page-size-select, "
+                    + "app-receipt-posting-log mat-paginator .mat-paginator-page-size-select");
 
     /**
  * The paginator label reads "N - M of T", but the range separator is rendered as an en dash, so a
@@ -383,13 +391,12 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         ReceiptCapture capture = new ReceiptCapture();
 
         if (!selectPostingStatus(postingStatus)) {
-            // A missing option is a real capture failure, not a zero result: reporting 0 here
-            // would present an unfiltered page as a clean count.
             capture.problems.add("LMS Posting Status '" + postingStatus
                     + "' is not offered for this client, so its count could not be captured");
             return capture;
         }
 
+        configureReceiptPageSizeForScan(capture);
         searchReceipts(postingStatus, capture);
         capture.totalCount = readReceiptTotalCount(capture);
 
@@ -664,127 +671,309 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     private ReasonScan readUniqueFailureReasons() {
         List<String> reasons = new ArrayList<>();
         Set<String> problems = new LinkedHashSet<>();
-        Set<String> pages = new LinkedHashSet<>();
-        String previousSignature = "";
+        Set<String> processedReceiptKeys = new LinkedHashSet<>();
+
+        configureReceiptPageSizeForScan(null);
+        waitForStableReceiptPaginator();
+
+        ReceiptPageState firstState = readReceiptPageState();
+        if (firstState == null) {
+            problems.add("FAILED receipt paginator range could not be interpreted");
+            return new ReasonScan(reasons, problems);
+        }
+
+        if (firstState.total == 0) {
+            return new ReasonScan(reasons, problems);
+        }
+
+        int pageSize = firstState.pageSize();
+        int maxPages = pageSize > 0
+                ? Math.max(3, Math.min(10000, (int) Math.ceil(firstState.total / (double) pageSize) + 3))
+                : 10000;
+
         int pageGuard = 0;
+        int capturedReasons = 0;
+        int expectedTotal = firstState.total;
 
-        while (pageGuard++ < 100) {
-            String marker = readPaginatorRange();
-            String pageSignature = marker + "|" + receiptResultsSignature();
-
-            if (!pages.add(pageSignature) || (!marker.isBlank() && pages.stream().filter(x -> x.startsWith(marker + "|")).count() > 1)) {
+        while (pageGuard++ < maxPages) {
+            ReceiptPageState page = readReceiptPageState();
+            if (page == null) {
+                problems.add("FAILED receipt paginator state could not be read on page " + pageGuard);
                 break;
             }
 
-            if (marker.isBlank() && pageSignature.equals(previousSignature)) {
-                problems.add("FAILED receipt pagination stopped because the page did not change");
-                break;
-            }
-            previousSignature = pageSignature;
-
-            int rowCount = visibleReceiptRows().size();
-
-            if (rowCount == 0) {
-                if (isReceiptEmpty()) {
-                    break;
-                }
-
-                waitForReceiptResults();
-                rowCount = visibleReceiptRows().size();
-
-                if (rowCount == 0) {
-                    problems.add("FAILED receipts were reported by the paginator but no receipt "
-                            + "rows rendered (range: '" + readPaginatorRange() + "')");
-                    break;
-                }
+            if (page.total != expectedTotal) {
+                expectedTotal = page.total;
             }
 
-            for (int index = 0; index < rowCount; index++) {
-                // Re-fetch each iteration; cached row references go stale on re-render.
-                List<WebElement> currentRows = visibleReceiptRows();
-
-                if (index >= currentRows.size()) {
-                    problems.add("FAILED receipt row " + (index + 1)
-                            + " disappeared before its failure reason could be read");
-                    break;
-                }
-
-                WebElement row = currentRows.get(index);
-                WebElement icon = visibleInside(row, RECEIPT_ERROR_ICON);
-
-                if (icon == null) {
-                    problems.add("FAILED receipt row " + (index + 1)
-                            + " has no error icon to open");
-                    continue;
-                }
-
-                boolean reasonCaptured = false;
-                String reason = "";
-
-                for (int attempt = 0; attempt < 3 && !reasonCaptured; attempt++) {
-                    try {
-                        scrollIntoView(icon);
-                        new Actions(driver).moveToElement(icon).click().perform();
-                        reason = readFailureReason();
-                        if (!reason.isBlank()) {
-                            reasons.add(reason);
-                            reasonCaptured = true;
-                        }
-                    } catch (Exception e) {
-                        if (attempt == 2) {
-                            problems.add("FAILED receipt row " + (index + 1)
-                                    + " error menu could not be opened: " + e.getClass().getSimpleName());
-                        }
-                    } finally {
-                        if (isFailureReasonMenuOpen()) {
-                            closeFailureReasonMenu(index);
-                        }
-                    }
-
-                    if (!reasonCaptured && attempt < 2) {
-                        try {
-                            List<WebElement> refreshedRows = visibleReceiptRows();
-                            if (index < refreshedRows.size()) {
-                                icon = visibleInside(refreshedRows.get(index), RECEIPT_ERROR_ICON);
-                            }
-                        } catch (Exception ignored) {
-                        }
-                    }
-                }
-
-                if (!reasonCaptured) {
-                    problems.add("FAILED receipt row " + (index + 1)
-                            + " opened no failure reason after 3 attempts");
-                }
-            }
-
-            WebElement next = visibleElement(RECEIPT_NEXT_PAGE);
-
-            if (next == null || !next.isEnabled()) {
-                break;
-            }
-
-            String beforeRange = readPaginatorRange();
-            String beforeSignature = receiptResultsSignature();
-            clickAndWait(next);
-
-            try {
-                wait.until(d -> {
-                    String afterRange = readPaginatorRange();
-                    String afterSignature = receiptResultsSignature();
-                    boolean moved = !afterRange.isBlank() && !afterRange.equals(beforeRange);
-                    boolean changed = !afterSignature.isBlank() && !afterSignature.equals(beforeSignature);
-                    return (moved || changed) && (!visibleReceiptRows().isEmpty() || isReceiptEmpty());
-                });
-            } catch (RuntimeException e) {
-                problems.add("Receipt paginator stopped advancing at range '" + beforeRange + "'");
+            if (page.total == 0) {
                 break;
             }
 
             waitForReceiptResults();
+            List<WebElement> rows = visibleReceiptRows();
+
+            if (rows.isEmpty()) {
+                problems.add("FAILED receipts were reported by the paginator but no receipt rows rendered "
+                        + "(range: '" + page.range + "')");
+                break;
+            }
+
+            for (int index = 0; index < rows.size(); index++) {
+                List<WebElement> currentRows = visibleReceiptRows();
+                if (index >= currentRows.size()) {
+                    problems.add("FAILED receipt row " + (page.start + index)
+                            + " disappeared before its failure reason could be read");
+                    continue;
+                }
+
+                WebElement currentRow = currentRows.get(index);
+                String receiptKey = receiptRowKey(currentRow, index, page);
+
+                if (!processedReceiptKeys.add(receiptKey)) {
+                    continue;
+                }
+
+                String reason = readFailureReasonForReceipt(receiptKey, index, problems);
+                if (!reason.isBlank()) {
+                    reasons.add(reason);
+                    capturedReasons++;
+                }
+            }
+
+            ReceiptPageState afterPage = readReceiptPageState();
+            if (afterPage != null && afterPage.end >= afterPage.total && afterPage.total > 0) {
+                break;
+            }
+
+            WebElement next = visibleElement(RECEIPT_NEXT_PAGE);
+            if (next == null || !next.isEnabled()) {
+                if (afterPage != null && afterPage.end < afterPage.total) {
+                    problems.add("FAILED receipt pagination ended early at range '" + afterPage.range + "'");
+                }
+                break;
+            }
+
+            int beforeStart = afterPage == null ? page.start : afterPage.start;
+            String beforeSignature = receiptResultsSignature();
+
+            try {
+                clickAndWait(next);
+                waitForState("the FAILED receipt page to advance", d -> {
+                    ReceiptPageState current = readReceiptPageState();
+                    if (current == null) return false;
+                    if (current.start > beforeStart) {
+                        return !visibleReceiptRows().isEmpty() || current.total == 0;
+                    }
+                    return !receiptResultsSignature().isBlank()
+                            && !receiptResultsSignature().equals(beforeSignature)
+                            && (current.start != beforeStart || current.end >= current.total);
+                });
+                waitForReceiptResults();
+            } catch (RuntimeException e) {
+                problems.add("Receipt paginator stopped advancing after range '" + page.range + "': "
+                        + e.getClass().getSimpleName());
+                break;
+            }
+        }
+
+        if (pageGuard >= maxPages) {
+            ReceiptPageState finalState = readReceiptPageState();
+            if (finalState != null && finalState.end < finalState.total) {
+                problems.add("FAILED receipt pagination guard reached before all records were scanned: "
+                        + finalState.range);
+            }
+        }
+
+        if (expectedTotal > 0 && capturedReasons < expectedTotal) {
+            problems.add("FAILED receipt reason capture incomplete: filtered failed receipts = "
+                    + expectedTotal + ", failure reasons captured = " + capturedReasons);
         }
 
         return new ReasonScan(reasons, problems);
+    }
+
+    private String readFailureReasonForReceipt(
+            String receiptKey,
+            int rowIndex,
+            Set<String> problems) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                List<WebElement> rows = visibleReceiptRows();
+                WebElement row = findReceiptRowByKey(rows, receiptKey, rowIndex);
+                if (row == null) {
+                    if (attempt == 3) {
+                        problems.add("FAILED receipt '" + receiptKey
+                                + "' was not present when its failure reason was read");
+                    }
+                    continue;
+                }
+
+                WebElement icon = visibleInside(row, RECEIPT_ERROR_ICON);
+                if (icon == null) {
+                    problems.add("FAILED receipt '" + receiptKey + "' has no error icon to open");
+                    return "";
+                }
+
+                scrollIntoView(icon);
+                try {
+                    new Actions(driver).moveToElement(icon).click().perform();
+                } catch (Exception e) {
+                    jsClick(icon);
+                }
+
+                String reason = readFailureReason();
+                if (!reason.isBlank()) {
+                    return reason;
+                }
+
+                if (attempt == 3) {
+                    problems.add("FAILED receipt '" + receiptKey
+                            + "' opened no failure reason after 3 attempts");
+                }
+            } catch (StaleElementReferenceException e) {
+                if (attempt == 3) {
+                    problems.add("FAILED receipt '" + receiptKey
+                            + "' became stale during failure reason capture");
+                }
+            } catch (Exception e) {
+                if (attempt == 3) {
+                    problems.add("FAILED receipt '" + receiptKey
+                            + "' failure reason capture failed: "
+                            + e.getClass().getSimpleName());
+                }
+            } finally {
+                if (isFailureReasonMenuOpen()) {
+                    closeFailureReasonMenu(rowIndex);
+                }
+            }
+
+            if (attempt < 3) {
+                pause(300L * attempt);
+            }
+        }
+
+        return "";
+    }
+
+    private WebElement findReceiptRowByKey(
+            List<WebElement> rows,
+            String receiptKey,
+            int fallbackIndex) {
+        for (WebElement row : rows) {
+            try {
+                if (receiptKey.equals(receiptRowKey(row, -1, readReceiptPageState()))) {
+                    return row;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return fallbackIndex >= 0 && fallbackIndex < rows.size() ? rows.get(fallbackIndex) : null;
+    }
+
+    private String receiptRowKey(WebElement row, int index, ReceiptPageState page) {
+        List<WebElement> cells = row.findElements(By.xpath("./td"));
+        Map<String, Integer> headers = headerIndexesFromReceiptTable(row);
+        String receiptNumber = cell(cells, headers, "receipt no", "receipt number", "receipt");
+        String accountId = cell(cells, headers, "account no", "account id", "account");
+        if (!receiptNumber.isBlank()) {
+            return "RECEIPT:" + receiptNumber + "|ACCOUNT:" + accountId;
+        }
+
+        String rowText = clean(row.getText());
+        if (!rowText.isBlank()) {
+            return "ROW:" + rowText;
+        }
+
+        String range = page == null ? "" : page.range;
+        return "ROW:" + range + "#" + Math.max(index, 0);
+    }
+
+    private Map<String, Integer> headerIndexesFromReceiptTable(WebElement row) {
+        Map<String, Integer> indexes = new LinkedHashMap<>();
+        try {
+            WebElement table = row.findElement(By.xpath("./ancestor::table[1]"));
+            List<WebElement> headers = table.findElements(By.xpath(".//thead//th"));
+            for (int i = 0; i < headers.size(); i++) {
+                String header = canonical(headers.get(i).getText());
+                if (!header.isBlank()) {
+                    indexes.putIfAbsent(header, i);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return indexes;
+    }
+
+    private ReceiptPageState readReceiptPageState() {
+        String range = readPaginatorRange();
+        Matcher matcher = PAGER_PATTERN.matcher(range);
+        if (!matcher.matches()) {
+            return null;
+        }
+
+        int start = Integer.parseInt(matcher.group(1));
+        int end = matcher.group(2) == null
+                ? start
+                : Integer.parseInt(matcher.group(2));
+        int total = Integer.parseInt(matcher.group("total"));
+        return new ReceiptPageState(start, end, total, range);
+    }
+
+    private void configureReceiptPageSizeForScan(ReceiptCapture capture) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                WebElement selector = visibleElement(RECEIPT_PAGE_SIZE_SELECT);
+                if (selector == null) {
+                    return;
+                }
+
+                String current = clean(selector.getText());
+                if ("100".equals(current)) {
+                    return;
+                }
+
+                clickAndWait(selector);
+
+                WebElement option = shortWait.until(d -> {
+                    for (WebElement candidate : d.findElements(PAGINATOR_PAGE_SIZE_OPTIONS)) {
+                        try {
+                            if (isDisplayed(candidate) && "100".equals(clean(candidate.getText()))) {
+                                return candidate;
+                            }
+                        } catch (StaleElementReferenceException ignored) {
+                        }
+                    }
+                    return null;
+                });
+
+                if (option == null) {
+                    throw new IllegalStateException("100 page-size option was not rendered");
+                }
+
+                try {
+                    option.click();
+                } catch (Exception e) {
+                    jsClick(option);
+                }
+
+                waitForState("the receipt paginator page size to become 100",
+                        d -> {
+                            WebElement currentSelector = visibleElement(RECEIPT_PAGE_SIZE_SELECT);
+                            return currentSelector != null && "100".equals(clean(currentSelector.getText()));
+                        });
+                return;
+            } catch (StaleElementReferenceException | org.openqa.selenium.NoSuchElementException e) {
+            } catch (Exception e) {
+                if (attempt == 3 && capture != null) {
+                    capture.problems.add("Receipt paginator page size could not be set to 100; continuing with paginated capture");
+                }
+            }
+
+            if (attempt < 3) {
+                pause(300L * attempt);
+            }
+        }
     }
 
     /** Reasons collected from the error menus, plus non-fatal capture problems. */
@@ -1026,46 +1215,141 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             return;
         }
 
-        WebElement postingLogs = visibleElement(POSTING_LOGS_ACTION);
-        if (postingLogs == null) {
-            status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs action was not available.");
-            return;
-        }
+        PostingLogScan bestScan = null;
+        String lastFailure = "";
 
-        try {
-            scrollIntoView(postingLogs);
-            clickAndWait(postingLogs);
-            waitForPostingLogsModal();
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                PostingLogScan scan = capturePostingLogFailureReasonsOnce(status);
 
-            List<String> reasons = new ArrayList<>();
-            Set<String> pages = new LinkedHashSet<>();
-            int failedRecordCount = 0;
-            String previousSignature = "";
-            int pageGuard = 0;
-
-            while (pageGuard++ < 25) {
-                if (!isPostingLogsModalOpen()) {
-                    throw new IllegalStateException("PostingLogs modal closed before all receipt records were captured.");
+                if (bestScan == null || scan.reasons.size() > bestScan.reasons.size()) {
+                    bestScan = scan;
                 }
 
-                String range = readPostingLogRange();
-                String signature = range + "|" + postingLogRowsSignature();
-
-                if (!pages.add(signature)) {
+                if (scan.reasons.size() >= status.getFailedCount()
+                        || scan.problems.isEmpty()) {
                     break;
                 }
 
-                if (range.isBlank() && signature.equals(previousSignature)) {
-                    throw new IllegalStateException("PostingLogs pagination did not advance.");
+                lastFailure = String.join("; ", scan.problems);
+            } catch (Exception e) {
+                lastFailure = e.getClass().getSimpleName() + ": " + safeText(e);
+            } finally {
+                closePostingLogsModal();
+            }
+
+            if (attempt < 3) {
+                try {
+                    ensureJobDetailsPageAfterPostingLogRetry();
+                } catch (Exception ignored) {
                 }
-                previousSignature = signature;
+                pause(500L * attempt);
+            }
+        }
 
-                List<WebElement> rows = visiblePostingLogRows();
+        if (bestScan == null) {
+            status.setJobFailureReason(
+                    "Receipt Posting Failure detected, but PostingLogs could not be captured after 3 attempts"
+                            + (lastFailure.isBlank() ? "." : ": " + lastFailure));
+            return;
+        }
 
-                for (WebElement row : rows) {
+        for (String reason : bestScan.reasons) {
+            status.addFailureReason(reason);
+        }
+
+        int expected = status.getFailedCount();
+        int captured = bestScan.reasons.size();
+
+        if (captured == 0) {
+            status.setJobFailureReason(
+                    "Receipt Posting Failure detected, but no receipt-level failure reason was available in PostingLogs."
+                            + (bestScan.problems.isEmpty() ? "" : " " + String.join(" ", bestScan.problems)));
+            return;
+        }
+
+        if (expected > 0 && captured < expected) {
+            status.setJobFailureReason(
+                    "Receipt Posting Failure detected; PostingLogs captured " + captured
+                            + " of " + expected + " failure reasons."
+                            + (bestScan.problems.isEmpty() ? "" : " " + String.join(" ", bestScan.problems)));
+            return;
+        }
+
+        status.setJobFailureReason(
+                "Receipt Posting Failure detected; PostingLogs captured "
+                        + captured + " receipt failure reasons.");
+    }
+
+    private PostingLogScan capturePostingLogFailureReasonsOnce(JobStatus status) {
+        WebElement postingLogs = visibleElement(POSTING_LOGS_ACTION);
+        if (postingLogs == null) {
+            throw new IllegalStateException("PostingLogs action was not available.");
+        }
+
+        scrollIntoView(postingLogs);
+        clickAndWait(postingLogs);
+        waitForPostingLogsModal();
+        configurePostingLogPageSizeForScan();
+
+        ReceiptPageState page = readPostingLogPageState();
+        if (page == null) {
+            throw new IllegalStateException("PostingLogs paginator range could not be interpreted.");
+        }
+
+        PostingLogScan scan = new PostingLogScan();
+        if (page.total == 0) {
+            return scan;
+        }
+
+        int pageSize = page.pageSize();
+        int maxPages = pageSize > 0
+                ? Math.max(3, Math.min(10000, (int) Math.ceil(page.total / (double) pageSize) + 3))
+                : 10000;
+        int expectedTotal = page.total;
+        Set<String> processedKeys = new LinkedHashSet<>();
+
+        for (int pageGuard = 1; pageGuard <= maxPages; pageGuard++) {
+            if (!isPostingLogsModalOpen()) {
+                throw new IllegalStateException("PostingLogs modal closed before all receipt records were captured.");
+            }
+
+            page = readPostingLogPageState();
+            if (page == null) {
+                scan.problems.add("PostingLogs paginator state could not be read on page " + pageGuard);
+                break;
+            }
+
+            expectedTotal = page.total;
+
+            List<WebElement> rows = visiblePostingLogRows();
+            if (rows.isEmpty()) {
+                if (page.total == 0) break;
+                scan.problems.add("PostingLogs reported " + page.total
+                        + " records but no rows rendered at range '" + page.range + "'");
+                break;
+            }
+
+            for (int index = 0; index < rows.size(); index++) {
+                for (int rowAttempt = 1; rowAttempt <= 3; rowAttempt++) {
                     try {
+                        List<WebElement> currentRows = visiblePostingLogRows();
+                        if (index >= currentRows.size()) {
+                            if (rowAttempt == 3) {
+                                scan.problems.add("PostingLogs row " + (page.start + index)
+                                        + " disappeared before it could be read");
+                            }
+                            continue;
+                        }
+
+                        WebElement row = currentRows.get(index);
+                        String rowKey = postingLogRowKey(row, index, page);
+                        if (!processedKeys.add(rowKey)) {
+                            break;
+                        }
+
                         List<WebElement> cells = row.findElements(By.xpath("./td"));
-                        if (cells.isEmpty()) continue;
+                        if (cells.isEmpty()) break;
 
                         Map<String, Integer> headers = headerIndexesFromPostingLogTable(row);
                         String receiptStatus = cell(cells, headers,
@@ -1075,8 +1359,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                                 "error message", "error");
                         String failureCode = cell(cells, headers,
                                 "failure code", "error code", "code");
-                        String receiptNumber = cell(cells, headers,
-                                "receipt no", "receipt number", "receipt", "receipt id");
 
                         if (receiptStatus.isBlank() && cells.size() > 5) {
                             receiptStatus = clean(cells.get(5).getText());
@@ -1096,61 +1378,177 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                             failedRecord = !reason.isBlank() || !failureCode.isBlank();
                         }
 
-                        if (!failedRecord) continue;
+                        if (!failedRecord) break;
 
-                        failedRecordCount++;
+                        scan.failedRecords++;
 
-                        if (reason.isBlank()) continue;
-
-                        String displayReason = failureCode.isBlank()
-                                ? reason
-                                : "[" + failureCode + "] " + reason;
-
-                        if (!receiptNumber.isBlank()) {
-                            displayReason = displayReason.trim();
+                        if (!reason.isBlank()) {
+                            scan.reasons.add(
+                                    failureCode.isBlank()
+                                            ? reason
+                                            : "[" + failureCode + "] " + reason);
                         }
-
-                        reasons.add(displayReason);
-                    } catch (StaleElementReferenceException ignored) {
+                        break;
+                    } catch (StaleElementReferenceException e) {
+                        if (rowAttempt == 3) {
+                            scan.problems.add("PostingLogs row " + (page.start + index)
+                                    + " remained stale after 3 attempts");
+                        }
                     }
                 }
+            }
 
-                WebElement next = visibleElement(POSTING_LOG_NEXT_PAGE);
-                if (next == null || !next.isEnabled()) {
-                    break;
+            if (page.end >= page.total || page.total == 0) {
+                break;
+            }
+
+            WebElement next = visibleElement(POSTING_LOG_NEXT_PAGE);
+            if (next == null || !next.isEnabled()) {
+                scan.problems.add("PostingLogs pagination ended early at range '" + page.range + "'");
+                break;
+            }
+
+            int beforeStart = page.start;
+            String beforeSignature = postingLogRowsSignature();
+
+            clickAndWait(next);
+
+            try {
+                waitForState("PostingLogs to advance to the next page", d -> {
+                    ReceiptPageState current = readPostingLogPageState();
+                    if (current == null) return false;
+                    return current.start > beforeStart
+                            && (!visiblePostingLogRows().isEmpty() || current.total == 0);
+                });
+                waitForPostingLogRows();
+            } catch (RuntimeException e) {
+                scan.problems.add("PostingLogs paginator stopped advancing after range '"
+                        + page.range + "': " + e.getClass().getSimpleName());
+                break;
+            }
+
+            if (postingLogRowsSignature().equals(beforeSignature)
+                    && readPostingLogPageState() != null
+                    && readPostingLogPageState().start == beforeStart) {
+                scan.problems.add("PostingLogs page content did not change after Next page.");
+                break;
+            }
+        }
+
+        if (expectedTotal > 0 && scan.failedRecords < expectedTotal) {
+            scan.problems.add("PostingLogs failed records captured = "
+                    + scan.failedRecords + ", paginator total = " + expectedTotal);
+        }
+
+        if (scan.reasons.size() < status.getFailedCount()) {
+            scan.problems.add("PostingLogs failure reasons captured = "
+                    + scan.reasons.size() + ", expected = " + status.getFailedCount());
+        }
+
+        return scan;
+    }
+
+    private void configurePostingLogPageSizeForScan() {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                WebElement selector = visibleElement(POSTING_LOG_PAGE_SIZE_SELECT);
+                if (selector == null) return;
+
+                if ("100".equals(clean(selector.getText()))) {
+                    return;
                 }
 
-                String before = range;
-                String beforeSignature = postingLogRowsSignature();
-                clickAndWait(next);
+                clickAndWait(selector);
 
-                shortWait.until(d -> {
-                    if (!isPostingLogsModalOpen()) return false;
-                    String after = readPostingLogRange();
-                    String afterSignature = postingLogRowsSignature();
-                    return (!after.isBlank() && !after.equals(before))
-                            || (!afterSignature.isBlank() && !afterSignature.equals(beforeSignature));
+                WebElement option = shortWait.until(d -> {
+                    for (WebElement candidate : d.findElements(PAGINATOR_PAGE_SIZE_OPTIONS)) {
+                        try {
+                            if (isDisplayed(candidate) && "100".equals(clean(candidate.getText()))) {
+                                return candidate;
+                            }
+                        } catch (StaleElementReferenceException ignored) {
+                        }
+                    }
+                    return null;
                 });
 
-                waitForPostingLogRows();
-            }
+                if (option == null) {
+                    throw new IllegalStateException("100 page-size option was not rendered in PostingLogs.");
+                }
 
-            for (String reason : reasons) {
-                status.addFailureReason(reason);
-            }
+                try {
+                    option.click();
+                } catch (Exception e) {
+                    jsClick(option);
+                }
 
-            if (!reasons.isEmpty()) {
-                status.setJobFailureReason(null);
-            } else {
-                status.setJobFailureReason(
-                        "Receipt Posting Failure detected, but no receipt-level failure reason was available in PostingLogs.");
+                waitForState("the PostingLogs paginator page size to become 100",
+                        d -> {
+                            WebElement current = visibleElement(POSTING_LOG_PAGE_SIZE_SELECT);
+                            return current != null && "100".equals(clean(current.getText()));
+                        });
+                return;
+            } catch (Exception e) {
+                if (attempt == 3) {
+                    System.out.println("[WARN] PostingLogs page size could not be set to 100; continuing with paginated capture.");
+                }
+                if (attempt < 3) pause(300L * attempt);
             }
-        } catch (Exception e) {
-            status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs could not be captured: "
-                    + e.getClass().getSimpleName() + ": " + safeText(e));
-        } finally {
-            closePostingLogsModal();
         }
+    }
+
+    private ReceiptPageState readPostingLogPageState() {
+        String range = readPostingLogRange();
+        Matcher matcher = PAGER_PATTERN.matcher(range);
+        if (!matcher.matches()) {
+            return null;
+        }
+
+        int start = Integer.parseInt(matcher.group(1));
+        int end = matcher.group(2) == null
+                ? start
+                : Integer.parseInt(matcher.group(2));
+        int total = Integer.parseInt(matcher.group("total"));
+        return new ReceiptPageState(start, end, total, range);
+    }
+
+    private String postingLogRowKey(WebElement row, int index, ReceiptPageState page) {
+        List<WebElement> cells = row.findElements(By.xpath("./td"));
+        Map<String, Integer> headers = headerIndexesFromPostingLogTable(row);
+        String receiptNumber = cell(cells, headers, "receipt no", "receipt number", "receipt", "receipt id");
+        String accountId = cell(cells, headers, "account id", "account");
+        if (!receiptNumber.isBlank()) {
+            return "RECEIPT-LOG:" + receiptNumber + "|ACCOUNT:" + accountId;
+        }
+
+        String rowText = clean(row.getText());
+        if (!rowText.isBlank()) {
+            return "ROW-LOG:" + rowText;
+        }
+
+        return "ROW-LOG:" + (page == null ? "" : page.range) + "#" + Math.max(index, 0);
+    }
+
+    private Map<String, Integer> headerIndexesFromPostingLogTable(WebElement row) {
+        Map<String, Integer> indexes = new LinkedHashMap<>();
+        try {
+            WebElement table = row.findElement(By.xpath("./ancestor::table[1]"));
+            List<WebElement> headers = table.findElements(By.xpath(".//thead//th"));
+            for (int i = 0; i < headers.size(); i++) {
+                String header = canonical(headers.get(i).getText());
+                if (!header.isBlank()) {
+                    indexes.putIfAbsent(header, i);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return indexes;
+    }
+
+    private static final class PostingLogScan {
+        final List<String> reasons = new ArrayList<>();
+        final Set<String> problems = new LinkedHashSet<>();
+        int failedRecords;
     }
 
     private boolean isPostingLogsModalOpen() {
@@ -1168,7 +1566,12 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private List<WebElement> visiblePostingLogRows() {
         List<WebElement> result = new ArrayList<>();
-        for (WebElement row : driver.findElements(POSTING_LOG_ROWS)) {
+        WebElement modal = visibleElement(POSTING_LOGS_MODAL);
+        if (modal == null) {
+            return result;
+        }
+
+        for (WebElement row : modal.findElements(POSTING_LOG_ROWS)) {
             try {
                 if (isDisplayed(row) && !clean(row.getText()).isBlank()) {
                     result.add(row);
@@ -1197,11 +1600,9 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private String postingLogRowsSignature() {
         StringBuilder signature = new StringBuilder();
-        for (WebElement row : driver.findElements(POSTING_LOG_ROWS)) {
+        for (WebElement row : visiblePostingLogRows()) {
             try {
-                if (isDisplayed(row)) {
-                    signature.append(clean(row.getText())).append("||");
-                }
+                signature.append(clean(row.getText())).append("||");
             } catch (Exception ignored) {
             }
         }
@@ -1210,7 +1611,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private String readPostingLogRange() {
         try {
-            WebElement range = visibleElement(By.cssSelector(
+            WebElement modal = visibleElement(POSTING_LOGS_MODAL);
+            if (modal == null) return "";
+
+            WebElement range = visibleInside(modal, By.cssSelector(
                     "app-receipt-posting-log div.paginator-container .ct-range, "
                     + "app-receipt-posting-log .ct-range, "
                     + "app-receipt-posting-log mat-paginator .mat-mdc-paginator-range-label, "
@@ -2139,9 +2543,26 @@ private void waitForJobDetailsPage(String jobName) {
 
     /** Fixed format so generated rows match the timestamps read from the application. */
 
-    private static class ReceiptCapture {
+    private static final class ReceiptPageState {
+        final int start;
+        final int end;
+        final int total;
+        final String range;
+
+        ReceiptPageState(int start, int end, int total, String range) {
+            this.start = start;
+            this.end = end;
+            this.total = total;
+            this.range = range;
+        }
+
+        int pageSize() {
+            return end >= start && end > 0 ? end - start + 1 : 0;
+        }
+    }
+
+    private static final class ReceiptCapture {
         int totalCount;
         List<String> reasons = new ArrayList<>();
         Set<String> problems = new LinkedHashSet<>();
     }
-}
