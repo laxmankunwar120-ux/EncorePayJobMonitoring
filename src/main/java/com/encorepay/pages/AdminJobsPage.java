@@ -1091,7 +1091,11 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                                 || !reason.isBlank()
                                 || !failureCode.isBlank();
 
-                        if (!failedRecord || reason.isBlank()) continue;
+                        if (!failedRecord) continue;
+
+                        failedRecordCount++;
+
+                        if (reason.isBlank()) continue;
 
                         String displayReason = failureCode.isBlank()
                                 ? reason
