@@ -15,6 +15,7 @@ public class JobStatus {
     private int pendingCount;
     private String dateTime;
     private final Map<String, Integer> failureReasonCounts = new LinkedHashMap<>();
+    private final Map<String, String> failureReasonDisplay = new LinkedHashMap<>();
     private String jobFailureReason;
     private String validationMessage;
 
@@ -50,14 +51,18 @@ public class JobStatus {
     public List<String> getFailureReasons() {
         List<String> result = new ArrayList<>();
         for (Map.Entry<String, Integer> entry : failureReasonCounts.entrySet()) {
-            result.add(entry.getKey() + " (" + entry.getValue() + " accounts)");
+            String display = failureReasonDisplay.getOrDefault(entry.getKey(), entry.getKey());
+            result.add(display + " (" + entry.getValue() + " accounts)");
         }
         return Collections.unmodifiableList(result);
     }
 
     public String getJobFailureReason() { return jobFailureReason; }
 
-    public void clearFailureReasons() { failureReasonCounts.clear(); }
+    public void clearFailureReasons() {
+        failureReasonCounts.clear();
+        failureReasonDisplay.clear();
+    }
 
     public void setJobFailureReason(String jobFailureReason) {
         this.jobFailureReason = jobFailureReason == null ? null : jobFailureReason.trim();
@@ -70,8 +75,13 @@ public class JobStatus {
      */
     public void addFailureReason(String reason) {
         if (reason == null || reason.isBlank()) return;
+
         String clean = reason.replaceAll("\\s+", " ").trim();
-        failureReasonCounts.merge(clean, 1, Integer::sum);
+        String code = extractCode(clean);
+        String key = code == null ? clean : code;
+
+        failureReasonDisplay.putIfAbsent(key, clean);
+        failureReasonCounts.merge(key, 1, Integer::sum);
     }
 
     public String getValidationMessage() { return validationMessage; }
