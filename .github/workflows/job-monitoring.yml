@@ -17,7 +17,7 @@ jobs:
   monitor:
     name: Monitor all clients
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
 
     env:
       CLIENT_URLS: ${{ secrets.CLIENT_URLS }}
@@ -132,7 +132,7 @@ jobs:
             if [ -z "$url" ]; then continue; fi
             if echo "$url" | grep -qi "achfpl.com"; then
               echo "Checking protected application endpoint for $v"
-              status=$(curl -sS -L --max-time 30 -o /tmp/client-response.html -w "%{http_code}" "$url")
+              status=$(curl -sS -L --retry 4 --retry-delay 5 --retry-all-errors --connect-timeout 20 --max-time 90 -o /tmp/client-response.html -w "%{http_code}" "$url")
               echo "$v returned HTTP $status"
               if [ "$status" = "403" ]; then
                 echo "::warning::$v is returning HTTP 403 from the GitHub runner before Selenium authentication."
@@ -142,7 +142,7 @@ jobs:
           done
 
       - name: Run job monitoring
-        run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=45 -DbootTimeout=150 -DbusinessZone=Asia/Kolkata
+        run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=90 -DbootTimeout=300 -DpageLoadTimeout=120 -DbusinessZone=Asia/Kolkata
 
       - name: Check HTML report
         if: always()
