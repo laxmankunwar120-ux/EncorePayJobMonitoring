@@ -219,11 +219,18 @@ public class ConfigReader {
     private static String normalizeUrl(String url) {
         if (url == null) return "";
         String trimmed = url.trim();
-        int schemeEnd = trimmed.indexOf("://");
-        if (schemeEnd >= 0) trimmed = trimmed.substring(schemeEnd + 3);
-        int pathStart = trimmed.indexOf('/');
-        if (pathStart >= 0) trimmed = trimmed.substring(0, pathStart);
-        return trimmed.toLowerCase(Locale.ROOT);
+        try {
+            URI uri = URI.create(trimmed.matches("(?i)^https?://.*") ? trimmed : "https://" + trimmed);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            int port = uri.getPort();
+            String authority = host + (port > 0 ? ":" + port : "");
+            String path = uri.getPath() == null ? "" : uri.getPath().replaceAll("/{2,}", "/");
+            if (path.length() > 1 && path.endsWith("/")) path = path.substring(0, path.length() - 1);
+            String query = uri.getQuery() == null ? "" : "?" + uri.getQuery();
+            return (authority + path + query).toLowerCase(Locale.ROOT);
+        } catch (Exception e) {
+            return trimmed.toLowerCase(Locale.ROOT).replaceAll("/+$", "");
+        }
     }
 
     private static boolean isBlank(String value) {
