@@ -1037,22 +1037,9 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
-                WebElement safeTarget = visibleElement(RECEIPT_SAFE_OUTSIDE_TARGET);
-                if (safeTarget != null) {
-                    new Actions(driver)
-                            .moveToElement(safeTarget)
-                            .click()
-                            .perform();
-
-                    if (waitForMenuClosedFast()) {
-                        return true;
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-
-            try {
-                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
+                new Actions(driver)
+                        .sendKeys(Keys.ESCAPE)
+                        .perform();
             } catch (Exception ignored) {
             }
 
@@ -1061,34 +1048,54 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
 
             try {
-                List<WebElement> backdrops = driver.findElements(MENU_BACKDROP);
-                for (WebElement backdrop : backdrops) {
-                    if (!isDisplayed(backdrop)) continue;
-                    new Actions(driver)
-                            .moveToElement(backdrop)
-                            .click()
-                            .perform();
-
-                    if (waitForMenuClosedFast()) {
-                        return true;
-                    }
-                }
+                driver.findElement(By.tagName("body")).sendKeys(Keys.ESCAPE);
             } catch (Exception ignored) {
+            }
+
+            if (waitForMenuClosedFast()) {
+                return true;
             }
 
             try {
                 WebElement openTrigger = visibleElement(OPEN_RECEIPT_MENU_TRIGGER);
                 if (openTrigger != null) {
-                    new Actions(driver)
-                            .moveToElement(openTrigger)
-                            .click()
-                            .perform();
+                    jsClick(openTrigger);
+                }
+            } catch (Exception ignored) {
+            }
 
-                    if (waitForMenuClosedFast()) {
-                        return true;
+            if (waitForMenuClosedFast()) {
+                return true;
+            }
+
+            try {
+                List<WebElement> rows = visibleReceiptRows();
+                if (rowIndex >= 0 && rowIndex < rows.size()) {
+                    WebElement icon = visibleInside(rows.get(rowIndex), RECEIPT_ERROR_ICON);
+                    if (icon != null) {
+                        jsClick(icon);
                     }
                 }
             } catch (Exception ignored) {
+            }
+
+            if (waitForMenuClosedFast()) {
+                return true;
+            }
+
+            try {
+                WebElement safeTarget = visibleElement(RECEIPT_SAFE_OUTSIDE_TARGET);
+                if (safeTarget != null) {
+                    new Actions(driver)
+                            .moveToElement(safeTarget)
+                            .click()
+                            .perform();
+                }
+            } catch (Exception ignored) {
+            }
+
+            if (waitForMenuClosedFast()) {
+                return true;
             }
         }
 
