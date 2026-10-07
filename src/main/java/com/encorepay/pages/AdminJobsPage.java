@@ -27,6 +27,7 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.models.JobStatus;
 import com.encorepay.utilities.ConfigReader;
+import com.encorepay.utilities.RetryUtils;
 
 public class AdminJobsPage extends BasePage {
 
@@ -509,74 +510,12 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
 for (int index = 0; index < rowCount; index++) {
                 validateSessionAndWindow();
 
-                String rowSignature = "";
-                String reason = "";
-                int maxAttempts = 3;
-                boolean reasonCaptured = false;
+                boolean captured = captureFailureReasonForRow(index, seenRowSignatures, reasons, problems);
+                String rowSig = getRowSignatureForIndex(index, seenRowSignatures);
 
-                for (int attempt = 0; attempt < maxAttempts && !reasonCaptured; attempt++) {
-                    List<WebElement> currentRows = visibleReceiptRows();
-
-                    if (index >= currentRows.size()) {
-                        problems.add("FAILED receipt row " + (index + 1)
-                                + " disappeared before its failure reason could be read");
-                        break;
-                    }
-
-                    WebElement row = currentRows.get(index);
-                    WebElement icon = visibleInside(row, RECEIPT_ERROR_ICON);
-
-                    if (icon == null) {
-                        problems.add("FAILED receipt row " + (index + 1)
-                                + " has no error icon to open");
-                        break;
-                    }
-
-                    rowSignature = buildRowSignature(row, index);
-                    if (!seenRowSignatures.add(rowSignature)) {
-                        problems.add("Duplicate receipt row detected at index " + index + " (signature: " + rowSignature + "), skipping to prevent infinite loop");
-                        break;
-                    }
-
-                    try {
-                        scrollIntoViewSmooth(icon);
-                        fastClick(icon);
-                        try { Thread.sleep(500); } catch (InterruptedException ignored) { }
-
-                        reason = readFailureReason();
-
-                        if (!reason.isBlank()) {
-                            reasons.add(trimReason(reason));
-                            reasonCaptured = true;
-                        } else if (attempt < maxAttempts - 1) {
-                            awaitUiStability();
-                        }
-                    } catch (StaleElementReferenceException e) {
-                        if (attempt < maxAttempts - 1) {
-                            awaitUiStability();
-                            continue;
-                        }
-                        problems.add("FAILED receipt row " + (index + 1)
-                                + " became stale before failure reason could be read");
-                    } catch (RuntimeException e) {
-                        if (attempt < maxAttempts - 1) {
-                            awaitUiStability();
-                            continue;
-                        }
-                        problems.add("FAILED receipt row " + (index + 1)
-                                + " error while reading failure reason: " + e.getClass().getSimpleName());
-                    }
-                }
-
-                if (!reasonCaptured && rowSignature.isEmpty()) {
+                if (!captured && rowSig.isEmpty()) {
                     problems.add("FAILED receipt row " + (index + 1)
-                            + " opened no failure reason after " + maxAttempts + " attempts");
-                }
-
-                if (!closeFailureReasonMenu(index)) {
-                    problems.add("The failure reason menu for FAILED receipt row " + (index + 1)
-                            + " could not be closed, so the remaining rows were not scanned");
-                    break;
+                            + " opened no failure reason after 3 attempts");
                 }
             }
 
@@ -628,9 +567,106 @@ for (int index = 0; index < rowCount; index++) {
         final Set<String> problems;
 
         ReasonScan(Set<String> reasons, Set<String> problems) {
-            this.reasons = reasons;
+this.reasons = reasons;
             this.problems = problems;
         }
+    }
+
+    private boolean captureFailureReasonForRow(int index, Set<String> seenRowSignatures,
+            Set<String> reasons, Set<String> problems) {
+        try {
+            return RetryUtils.retry(() -> {
+                validateSessionAndWindow();
+
+                List<WebElement> currentRows = visibleReceiptRows();
+
+                if (index >= currentRows.size()) {
+                    throw new RuntimeException("FAILED receipt row " + (index + 1)
+                            + " disappeared before its failure reason could be read");
+                }
+
+                WebElement row = currentRows.get(index);
+                WebElement icon = visibleInside(row, RECEIPT_ERROR_ICON);
+
+                if (icon == null) {
+                    throw new RuntimeException("FAILED receipt row " + (index + 1)
+                            + " has no error icon to open");
+                }
+
+                String rowSignature = buildRowSignature(row, index);
+                if (!seenRowSignatures.add(rowSignature)) {
+                    throw new RuntimeException("Duplicate receipt row detected at index " + index
+                            + " (signature: " + rowSignature + "), skipping to prevent infinite loop");
+                }
+
+                scrollIntoViewSmooth(icon);
+                fastClick(icon);
+
+                try {
+                    shortWait.until(d -> isFailureReasonMenuOpen());
+                } catch (RuntimeException e) {
+                    throw new RuntimeException("Failure reason menu did not open after clicking icon");
+                }
+
+                String reason = readFailureReason();
+
+                if (reason.isBlank()) {
+                    closeFailureReasonMenuInternal();
+                    throw new RuntimeException("No failure reason captured");
+                }
+
+                reasons.add(trimReason(reason));
+
+                if (!closeFailureReasonMenuInternal()) {
+                    throw new RuntimeException("Failed to close failure reason menu after reading reason");
+                }
+
+                return true;
+            }, 3);
+        } catch (RetryUtils.RetryExhaustedException e) {
+            problems.add("FAILED receipt row " + (index + 1) + " error: " + e.getCause().getMessage());
+            closeFailureReasonMenuInternal();
+            return false;
+        }
+    }
+
+    private boolean closeFailureReasonMenuInternal() {
+        for (int attempt = 0; attempt < 3 && isFailureReasonMenuOpen(); attempt++) {
+            try {
+                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
+            } catch (Exception ignored) {
+            }
+            if (waitForMenuClosed()) return true;
+
+            for (By safeTarget : List.of(MENU_BACKDROP, RECEIPTS_HEADING)) {
+                try {
+                    WebElement target = visibleElement(safeTarget);
+                    if (target == null) continue;
+                    new Actions(driver).moveToElement(target).click().perform();
+                    if (waitForMenuClosed()) return true;
+                } catch (Exception ignored) {
+                }
+            }
+
+            try {
+                if (isFailureReasonMenuOpen()) {
+                    driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
+                    if (waitForMenuClosed()) return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return !isFailureReasonMenuOpen();
+    }
+
+    private String getRowSignatureForIndex(int index, Set<String> seenRowSignatures) {
+        if (index < seenRowSignatures.size()) {
+            var it = seenRowSignatures.iterator();
+            for (int i = 0; i <= index && it.hasNext(); i++) {
+                if (i == index) return it.next();
+            }
+        }
+        return "";
     }
 
     private String readFailureReason() {
@@ -670,43 +706,7 @@ for (int index = 0; index < rowCount; index++) {
         } catch (RuntimeException e) {
             try { element.click(); } catch (Exception ignored) { }
         }
-    }
-
-    
-    private boolean closeFailureReasonMenu(int rowIndex) {
-        for (int attempt = 0; attempt < 3 && isFailureReasonMenuOpen(); attempt++) {
-            try {
-                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
-            } catch (Exception ignored) {
-            }
-            if (waitForMenuClosed()) return true;
-
-            for (By safeTarget : List.of(MENU_BACKDROP, RECEIPTS_HEADING)) {
-                try {
-                    WebElement target = visibleElement(safeTarget);
-                    if (target == null) continue;
-                    new Actions(driver).moveToElement(target).click().perform();
-                    if (waitForMenuClosed()) return true;
-                } catch (Exception ignored) {
-                }
-            }
-
-            try {
-                List<WebElement> rows = visibleReceiptRows();
-                if (rowIndex < rows.size()) {
-                    WebElement icon = visibleInside(rows.get(rowIndex), RECEIPT_ERROR_ICON);
-                    if (icon != null) {
-                        scrollIntoView(icon);
-                        new Actions(driver).moveToElement(icon).click().perform();
-                        if (waitForMenuClosed()) return true;
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        }
-
-        return !isFailureReasonMenuOpen();
-    }
+}
 
     private boolean isFailureReasonMenuOpen() {
         try {
@@ -1377,34 +1377,17 @@ private static final Pattern STATUS_LINE = Pattern.compile(
     }
 
     
-    private void clickJobInAdminMenu() {
-        RuntimeException lastFailure = null;
+private void clickJobInAdminMenu() {
+        retry(() -> {
+            WebElement job = waitForNavigation("the Job item inside the Admin submenu",
+                    d -> findVisibleWithRetry(ADMIN_MENU_JOB_ITEM, 2));
 
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            try {
-                WebElement job = waitForNavigation("the Job item inside the Admin submenu",
-                        d -> visibleElement(ADMIN_MENU_JOB_ITEM));
+            new Actions(driver).moveToElement(job).perform();
+            waitForNavigation("the Job item to become clickable",
+                    d -> isDisplayed(ADMIN_MENU_JOB_ITEM) && isElementEnabled(ADMIN_MENU_JOB_ITEM));
 
-                new Actions(driver).moveToElement(job).perform();
-                waitForNavigation("the Job item to become clickable",
-                        d -> isDisplayed(ADMIN_MENU_JOB_ITEM) && isElementEnabled(ADMIN_MENU_JOB_ITEM));
-
-                visibleElement(ADMIN_MENU_JOB_ITEM).click();
-                return;
-            } catch (StaleElementReferenceException e) {
-                lastFailure = e;
-                System.out.println("[WARN] Job item went stale, reopening the Admin submenu.");
-                hoverAdminMenu();
-            } catch (RuntimeException e) {
-                lastFailure = e;
-                System.out.println("[WARN] Job click attempt " + attempt + " failed: " + e.getMessage());
-                if (!isAdminSubmenuVisible()) hoverAdminMenu();
-            }
-        }
-
-        throw new IllegalStateException(
-                describeNavigationFailure("Job could not be clicked inside the Admin submenu."),
-                lastFailure);
+            clickWithRetry(findVisibleWithRetry(ADMIN_MENU_JOB_ITEM, 2));
+        }, 3);
     }
 
     
@@ -1422,8 +1405,8 @@ private static final Pattern STATUS_LINE = Pattern.compile(
         return isDisplayed(JOBS_PAGE_ROOT) && !visibleJobRows().isEmpty();
     }
 
-    private boolean isElementEnabled(By locator) {
-        WebElement element = visibleElement(locator);
+private boolean isElementEnabled(By locator) {
+        WebElement element = findVisibleElement(locator);
         if (element == null) return false;
         try {
             return element.isEnabled();
@@ -1807,7 +1790,7 @@ private WebElement requireJobRow(String jobName) {
         return null;
     }
 
-    private WebElement visibleElement(By locator) {
+private WebElement findVisibleElement(By locator) {
         for (WebElement element : driver.findElements(locator)) {
             if (isDisplayed(element)) return element;
         }
