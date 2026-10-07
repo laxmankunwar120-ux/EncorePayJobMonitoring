@@ -857,6 +857,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         clickAndWait(executionView);
 
         WebElement modal = waitForExecutionModal();
+        scrollExecutionModal(modal);
 
         String executionStatus = waitForModalField(modal, "Status");
         String endDate = waitForModalField(modal, "End Date");
