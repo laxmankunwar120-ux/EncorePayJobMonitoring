@@ -102,7 +102,7 @@ public final class GoogleChatNotifier {
                 .filter(s -> isFailed(s.getStatus()))
                 .count();
 
-                StringBuilder message = new StringBuilder();
+        StringBuilder message = new StringBuilder();
 
         message.append("ENCOREPAY JOB MONITORING REPORT\n\n")
                 .append("Run Date      : ")
@@ -120,7 +120,7 @@ public final class GoogleChatNotifier {
         message.append("CLIENT JOB STATUS\n\n");
 
         for (int i = 0; i < clients.size(); i++) {
-            appendClient(message, i + 1, clients.get(i), jobs, clientFailures);
+            appendClient(message, i + 1, clients.get(i), jobs);
         }
 
         appendTechnicalIssues(message, clientFailures, jobs);
@@ -156,8 +156,7 @@ public final class GoogleChatNotifier {
             StringBuilder message,
             int number,
             String client,
-            List<JobStatus> jobs,
-            List<String> clientFailures) {
+            List<JobStatus> jobs) {
 
         message.append(number).append(". *").append(client).append("*\n");
 
