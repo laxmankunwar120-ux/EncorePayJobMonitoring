@@ -130,8 +130,8 @@ public final class GoogleChatNotifier {
 
         appendPostReceiptSection(message, clients, jobs);
         appendFailureReasonsSection(message, clients, jobs);
-        appendSimpleJobSection(message, "*2. DOWNLOAD COLLECTION ITEM JOB*", clients, jobs, COLLECTIONS, false);
-        appendSimpleJobSection(message, "*3. UPCOMING DEMAND JOB*", clients, jobs, UPCOMING, true);
+        appendSimpleJobSection(message, "2. DOWNLOAD COLLECTION ITEM JOB", clients, jobs, COLLECTIONS, false);
+        appendSimpleJobSection(message, "3. UPCOMING DEMAND JOB", clients, jobs, UPCOMING, true);
         appendAutomationIssues(message, clients, jobs, clientFailures, monitoredClients);
         appendReportStatus(message, jobs, clientFailures, monitoringFailed, noStatusJobs);
 
@@ -184,7 +184,7 @@ public final class GoogleChatNotifier {
             List<String> clients,
             List<JobStatus> jobs) {
 
-        message.append("*1. POST RECEIPT JOB*\\n");
+        message.append("1. POST RECEIPT JOB\\n");
         message.append("```\\n");
         message.append(String.format(
                 "%-20s  %-14s  %10s  %10s  %-22s%n",
@@ -264,7 +264,7 @@ public final class GoogleChatNotifier {
 
         if (lines.isEmpty()) return;
 
-        message.append("\\n*Failure Reasons*\\n");
+        message.append("\\nFailure Reasons\\n");
         for (String line : lines) {
             message.append(line).append("\\n");
         }
@@ -398,7 +398,7 @@ public final class GoogleChatNotifier {
 
         if (issues.isEmpty()) return;
 
-        message.append("\\n*Automation Issues*\\n");
+        message.append("\\nAutomation Issues\\n");
         for (String issue : issues) {
             message.append(issue).append("\\n");
         }
@@ -434,7 +434,7 @@ public final class GoogleChatNotifier {
             }
         }
 
-        message.append("\\n*Report Status:* ")
+        message.append("\\nReport Status: ")
                 .append(actionRequired ? "ACTION REQUIRED" : "COMPLETED")
                 .append("\\n");
     }
