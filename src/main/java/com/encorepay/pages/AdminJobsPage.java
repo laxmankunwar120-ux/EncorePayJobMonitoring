@@ -270,13 +270,11 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         waitForReceiptPage();
         ensureReceiptFiltersVisible();
 
-        ReceiptCapture failed = captureReceiptStatus("FAILED", true);
+        ReceiptCapture failed = captureReceiptStatus("FAILED", false);
         ReceiptCapture pending = captureReceiptStatus("PENDING", false);
 
         status.setFailedCount(failed.totalCount);
         status.setPendingCount(pending.totalCount);
-        failed.reasons.forEach(status::addFailureReason);
-
         List<String> notes = new ArrayList<>(failed.problems);
         notes.addAll(pending.problems);
         if (failed.totalCount > 0 && failed.reasons.isEmpty() && notes.isEmpty()) {
@@ -289,7 +287,54 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         closeReceiptPageUsingUi();
         ensureJobsPage();
         captureLatestExecutionFromJobsList(JOB_POST_RECEIPTS, status);
+
+        if (status.getFailedCount() > 0 && status.getFailureReasons().isEmpty()) {
+            captureReceiptFailureReasonsFallback(status);
+        }
+
         return status;
+    }
+
+    private void captureReceiptFailureReasonsFallback(JobStatus status) {
+        try {
+            WebElement jobRow = requireJobRow(JOB_POST_RECEIPTS);
+            WebElement receiptButton = visibleInside(jobRow, RECEIPT_ACTION);
+            if (receiptButton == null) {
+                status.setJobFailureReason("Failed receipts were found, but the Receipt action was unavailable for fallback reason capture.");
+                return;
+            }
+
+            clickAndWait(receiptButton);
+            waitForReceiptPage();
+            ensureReceiptFiltersVisible();
+
+            ReceiptCapture failed = captureReceiptStatus("FAILED", true);
+            failed.reasons.forEach(status::addFailureReason);
+
+            if (!failed.problems.isEmpty()) {
+                String existing = status.getJobFailureReason();
+                String note = String.join("; ", failed.problems);
+                status.setJobFailureReason(existing == null || existing.isBlank()
+                        ? "Receipt failure reason fallback incomplete: " + note
+                        : existing + "; Receipt failure reason fallback incomplete: " + note);
+            }
+
+            if (status.getFailureReasons().isEmpty() && status.getFailedCount() > 0) {
+                status.setJobFailureReason("Failed receipts were found, but no receipt-level failure reason could be captured.");
+            }
+        } catch (Exception e) {
+            status.setJobFailureReason("Failed receipts were found, but fallback reason capture failed: "
+                    + e.getClass().getSimpleName() + ": " + safeText(e));
+        } finally {
+            try {
+                closeReceiptPageUsingUi();
+            } catch (Exception ignored) {
+                try {
+                    ensureJobsPage();
+                } catch (Exception ignoredAgain) {
+                }
+            }
+        }
     }
 
     private JobStatus monitorExecutionJob(String jobName, String clientName) {
@@ -532,37 +577,41 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
                 boolean reasonCaptured = false;
                 String reason = "";
-                int maxAttempts = 3;
 
-                for (int attempt = 0; attempt < maxAttempts && !reasonCaptured; attempt++) {
-                    scrollIntoView(icon);
-                    clickAndWait(icon);
+                for (int attempt = 0; attempt < 3 && !reasonCaptured; attempt++) {
+                    try {
+                        scrollIntoView(icon);
+                        new Actions(driver).moveToElement(icon).click().perform();
+                        reason = readFailureReason();
+                        if (!reason.isBlank()) {
+                            reasons.add(reason);
+                            reasonCaptured = true;
+                        }
+                    } catch (Exception e) {
+                        if (attempt == 2) {
+                            problems.add("FAILED receipt row " + (index + 1)
+                                    + " error menu could not be opened: " + e.getClass().getSimpleName());
+                        }
+                    } finally {
+                        if (isFailureReasonMenuOpen()) {
+                            closeFailureReasonMenu(index);
+                        }
+                    }
 
-                    reason = readFailureReason();
-
-                    if (!reason.isBlank()) {
-                        reasons.add(reason);
-                        reasonCaptured = true;
-                    } else if (attempt < maxAttempts - 1) {
-                        awaitUiStability();
-                        List<WebElement> refreshedRows = visibleReceiptRows();
-                        if (index < refreshedRows.size()) {
-                            icon = visibleInside(refreshedRows.get(index), RECEIPT_ERROR_ICON);
+                    if (!reasonCaptured && attempt < 2) {
+                        try {
+                            List<WebElement> refreshedRows = visibleReceiptRows();
+                            if (index < refreshedRows.size()) {
+                                icon = visibleInside(refreshedRows.get(index), RECEIPT_ERROR_ICON);
+                            }
+                        } catch (Exception ignored) {
                         }
                     }
                 }
 
                 if (!reasonCaptured) {
                     problems.add("FAILED receipt row " + (index + 1)
-                            + " opened no failure reason after " + maxAttempts + " attempts");
-                }
-
-                if (!closeFailureReasonMenu(index)) {
-                    // A menu left open would make the next read return this row's reason again,
-                    // so the scan stops rather than mislabelling the rows that follow.
-                    problems.add("The failure reason menu for FAILED receipt row " + (index + 1)
-                            + " could not be closed, so the remaining rows were not scanned");
-                    break;
+                            + " opened no failure reason after 3 attempts");
                 }
             }
 
