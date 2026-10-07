@@ -878,7 +878,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 return null;
             });
 
-            Set<String> reasons = new LinkedHashSet<>();
+            List<String> reasons = new ArrayList<>();
             Set<String> pages = new LinkedHashSet<>();
 
             while (true) {
