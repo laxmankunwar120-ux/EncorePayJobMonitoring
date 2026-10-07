@@ -138,8 +138,8 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             "(\\d+)\\s*(?:[-\\u2013\\u2014]\\s*(\\d+)\\s*)?of\\s*(?<total>\\d+)");
     private static final Pattern FULL_DATE_TIME = Pattern.compile("(?:\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?:\\s+|T)+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[APMapm]{2})?");
     private static final Pattern RECEIPT_POSTING_FAILURE = Pattern.compile(
-            "(?i)Receipt Posting Failure:\\s*Total:\\s*(\\d+)\\s*,\\s*Success:\\s*(\\d+)\\s*,"
-                    + "\\s*Partially Success:\\s*(\\d+)\\s*,\\s*Failed:\\s*(\\d+)");
+            "(?i)Receipt\\s+Posting\\s+Failure:\\s*Total:\\s*(\\d+)\\s*,\\s*Success:\\s*(\\d+)\\s*,"
+                    + "\\s*Partially\\s+Success:\\s*(\\d+)\\s*,\\s*Failed:\\s*(\\d+)");
 
     private final WebDriverWait jobsPageWait;
 
@@ -922,7 +922,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     private boolean normalizeReceiptPostingSummary(String reason, JobStatus status) {
         String text = clean(reason);
         Matcher matcher = RECEIPT_POSTING_FAILURE.matcher(text);
-        if (!matcher.matches()) {
+        if (!matcher.find()) {
             return false;
         }
 
@@ -957,12 +957,13 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         try {
             scrollIntoView(postingLogs);
             clickAndWait(postingLogs);
-            WebElement modal = wait.until(d -> {
+
+            wait.until(d -> {
                 List<WebElement> modals = d.findElements(POSTING_LOGS_MODAL);
                 for (int i = modals.size() - 1; i >= 0; i--) {
-                    if (isDisplayed(modals.get(i))) return modals.get(i);
+                    if (isDisplayed(modals.get(i))) return true;
                 }
-                return null;
+                return false;
             });
 
             List<String> reasons = new ArrayList<>();
@@ -985,26 +986,48 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 previousSignature = signature;
 
                 List<WebElement> rows = driver.findElements(POSTING_LOG_ROWS);
-                boolean foundReason = false;
+                boolean pageHadRows = false;
 
                 for (WebElement row : rows) {
-                    if (!isDisplayed(row)) continue;
-                    List<WebElement> cells = row.findElements(By.xpath("./td"));
-                    if (cells.size() < 7) continue;
+                    try {
+                        if (!isDisplayed(row)) continue;
+                        List<WebElement> cells = row.findElements(By.xpath("./td"));
+                        if (cells.isEmpty()) continue;
 
-                    String receiptStatus = clean(cells.get(5).getText());
-                    String reason = clean(cells.get(6).getText());
-                    String failureCode = cells.size() > 7 ? clean(cells.get(7).getText()) : "";
+                        Map<String, Integer> headers = headerIndexesFromPostingLogTable(row);
+                        String receiptStatus = cell(cells, headers, "receipt status", "status", "posting status");
+                        String reason = cell(cells, headers, "failure reason", "reason", "error message", "error");
+                        String failureCode = cell(cells, headers, "failure code", "error code", "code");
 
-                    if (!reason.isBlank() && (receiptStatus.isBlank()
-                            || receiptStatus.toUpperCase(Locale.ROOT).contains("FAIL")
-                            || failureCode.length() > 0)) {
-                        reasons.add(failureCode.isBlank() ? reason : reason + " | Failure Code: " + failureCode);
-                        foundReason = true;
+                        if (receiptStatus.isBlank() && cells.size() > 5) {
+                            receiptStatus = clean(cells.get(5).getText());
+                        }
+                        if (reason.isBlank() && cells.size() > 6) {
+                            reason = clean(cells.get(6).getText());
+                        }
+                        if (failureCode.isBlank() && cells.size() > 7) {
+                            failureCode = clean(cells.get(7).getText());
+                        }
+
+                        if (reason.isBlank()) continue;
+
+                        String statusText = receiptStatus.toUpperCase(Locale.ROOT);
+                        boolean failedRecord = statusText.isBlank()
+                                || statusText.contains("FAIL")
+                                || statusText.contains("PARTIAL")
+                                || !failureCode.isBlank();
+
+                        if (!failedRecord) continue;
+
+                        pageHadRows = true;
+                        reasons.add(failureCode.isBlank()
+                                ? reason
+                                : reason + " | Failure Code: " + failureCode);
+                    } catch (StaleElementReferenceException ignored) {
                     }
                 }
 
-                if (!foundReason && rows.isEmpty()) {
+                if (!pageHadRows && rows.isEmpty()) {
                     status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs returned no receipt records.");
                 }
 
@@ -1016,6 +1039,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 String before = range;
                 String beforeSignature = postingLogRowsSignature();
                 clickAndWait(next);
+
                 try {
                     wait.until(d -> {
                         String after = readPostingLogRange();
@@ -1038,13 +1062,28 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             } else if (status.getJobFailureReason() == null || status.getJobFailureReason().isBlank()) {
                 status.setJobFailureReason("Receipt Posting Failure detected, but no receipt-level failure reason was available in PostingLogs.");
             }
-
-            closePostingLogsModal();
         } catch (Exception e) {
             status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs could not be captured: "
                     + e.getClass().getSimpleName() + ": " + safeText(e));
+        } finally {
             closePostingLogsModal();
         }
+    }
+
+    private Map<String, Integer> headerIndexesFromPostingLogTable(WebElement row) {
+        Map<String, Integer> indexes = new LinkedHashMap<>();
+        try {
+            WebElement table = row.findElement(By.xpath("./ancestor::table[1]"));
+            List<WebElement> headers = table.findElements(By.xpath(".//thead//th"));
+            for (int i = 0; i < headers.size(); i++) {
+                String header = canonical(headers.get(i).getText());
+                if (!header.isBlank()) {
+                    indexes.putIfAbsent(header, i);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return indexes;
     }
 
     private String postingLogRowsSignature() {
