@@ -118,9 +118,11 @@ public class AdminJobsPage extends BasePage {
     private static final By RECEIPT_ERROR_ICON = By.xpath(".//div[contains(@class,'material-symbols-rounded') and normalize-space()='error_outline']");
     private static final By MENU_BACKDROP = By.cssSelector(".cdk-overlay-backdrop, .cdk-overlay-dark-backdrop");
     private static final By FAILURE_MENU = By.cssSelector(".cdk-overlay-pane .mat-mdc-menu-panel, .cdk-overlay-pane .mat-menu-panel");
+    private static final By FAILURE_REASON = By.cssSelector(
+            ".cdk-overlay-pane .mat-mdc-menu-panel .text-red-500, "
+                    + ".cdk-overlay-pane .mat-menu-panel .text-red-500");
     private static final By OPEN_RECEIPT_MENU_TRIGGER = By.cssSelector(
-            "app-receipts [aria-haspopup='menu'][aria-expanded='true'], "
-                    + "app-receipts [aria-expanded='true'][aria-controls]");
+            "app-receipts [aria-haspopup='menu'][aria-expanded='true']");
     private static final By RECEIPTS_HEADING = By.xpath(
             "//app-receipts//h1[contains(normalize-space(),'Post-Receipts')] | //h1[contains(normalize-space(),'Post-Receipts')]");
     private static final By RECEIPT_CLOSE = By.xpath("//app-receipts//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]");
@@ -825,22 +827,22 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 scrollIntoView(icon);
 
                 try {
-                    new Actions(driver).moveToElement(icon).click().perform();
-                } catch (Exception e) {
                     jsClick(icon);
+                } catch (Exception e) {
+                    new Actions(driver).moveToElement(icon).click().perform();
                 }
 
                 String reason = readFailureReason();
 
                 if (!reason.isBlank()) {
-                    if (!closeFailureReasonMenu(rowIndex)) {
-                        if (attempt == 3) {
-                            problems.add("FAILED receipt '" + receiptKey
-                                    + "' reason was read, but its error menu could not be closed");
-                            return "";
-                        }
-                    } else {
+                    if (closeFailureReasonMenu(rowIndex)) {
                         return reason;
+                    }
+
+                    if (attempt == 3) {
+                        problems.add("FAILED receipt '" + receiptKey
+                                + "' reason was read, but its error menu could not be closed");
+                        return "";
                     }
                 } else if (attempt == 3) {
                     problems.add("FAILED receipt '" + receiptKey
@@ -864,7 +866,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
 
             if (attempt < 3) {
-                pause(150L * attempt);
+                pause(100L * attempt);
             }
         }
 
@@ -1003,21 +1005,19 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     }
 
     private String readFailureReason() {
-        // shortWait keeps a menu that never opens from stalling the whole scan.
         try {
-            return clean(shortWait.until(d -> {
-                List<WebElement> menus = d.findElements(FAILURE_MENU);
-
-                for (int i = menus.size() - 1; i >= 0; i--) {
-                    WebElement menu = menus.get(i);
-                    if (!isDisplayed(menu)) continue;
-
-                    String text = clean(menu.getText());
-                    if (!text.isBlank()) return text;
-                }
-
-                return null;
-            }));
+            return clean(new WebDriverWait(driver, java.time.Duration.ofSeconds(2))
+                    .until(d -> {
+                        for (WebElement reason : d.findElements(FAILURE_REASON)) {
+                            try {
+                                if (!isDisplayed(reason)) continue;
+                                String text = clean(reason.getText());
+                                if (!text.isBlank()) return text;
+                            } catch (StaleElementReferenceException ignored) {
+                            }
+                        }
+                        return null;
+                    }));
         } catch (RuntimeException e) {
             return "";
         }
@@ -1033,15 +1033,11 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             return true;
         }
 
-        for (int attempt = 1; attempt <= 4; attempt++) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
             try {
                 WebElement openTrigger = visibleElement(OPEN_RECEIPT_MENU_TRIGGER);
                 if (openTrigger != null) {
-                    try {
-                        jsClick(openTrigger);
-                    } catch (Exception ignored) {
-                        new Actions(driver).moveToElement(openTrigger).click().perform();
-                    }
+                    jsClick(openTrigger);
                 }
             } catch (Exception ignored) {
             }
@@ -1051,17 +1047,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
 
             try {
-                new Actions(driver).sendKeys(Keys.ESCAPE).perform();
-            } catch (Exception ignored) {
-            }
-
-            if (waitForMenuClosedFast()) {
-                return true;
-            }
-
-            try {
-                ((JavascriptExecutor) driver).executeScript(
-                        "document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',keyCode:27,which:27,bubbles:true}));");
+                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
             } catch (Exception ignored) {
             }
 
@@ -1074,11 +1060,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 if (rowIndex >= 0 && rowIndex < rows.size()) {
                     WebElement icon = visibleInside(rows.get(rowIndex), RECEIPT_ERROR_ICON);
                     if (icon != null) {
-                        try {
-                            jsClick(icon);
-                        } catch (Exception ignored) {
-                            new Actions(driver).moveToElement(icon).click().perform();
-                        }
+                        jsClick(icon);
                     }
                 }
             } catch (Exception ignored) {
@@ -1094,7 +1076,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private boolean waitForMenuClosedFast() {
         try {
-            new WebDriverWait(driver, java.time.Duration.ofMillis(1200))
+            new WebDriverWait(driver, java.time.Duration.ofMillis(900))
                     .until(d -> d.findElements(FAILURE_MENU).stream().noneMatch(this::isDisplayed));
             return true;
         } catch (RuntimeException e) {
