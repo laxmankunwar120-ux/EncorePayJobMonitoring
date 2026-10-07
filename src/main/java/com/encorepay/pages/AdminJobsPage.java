@@ -412,7 +412,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     if (attempt == maxAttempts) {
                         return false;
                     }
-                    sleep(250);
+                    pause(250);
                     continue;
                 }
 
@@ -485,11 +485,19 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
 
             if (attempt < maxAttempts) {
-                sleep(300);
+                pause(300);
             }
         }
 
         return false;
+    }
+
+    private void pause(long milliseconds) {
+        try {
+            Thread.sleep(milliseconds);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private WebElement findVisibleLmsPostingStatusSelect() {
