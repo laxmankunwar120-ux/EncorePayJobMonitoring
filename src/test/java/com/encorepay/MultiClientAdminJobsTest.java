@@ -81,8 +81,6 @@ public class MultiClientAdminJobsTest {
             clientFailures.add("MULTI-CLIENT RUN :: No monitoring result was produced.");
         }
 
-        // A client can be dropped from the run entirely by configuration rather than by failing,
-        // so the number that produced results is compared with the number that was configured.
         Set<String> monitoredClients = new LinkedHashSet<>();
         for (JobStatus status : allStatuses) {
             if (status.getClientName() != null && !status.getClientName().isBlank()) {
@@ -125,17 +123,17 @@ public class MultiClientAdminJobsTest {
             System.out.println("[REPORT FAILED] " + safeMessage(e));
         }
 
-        // Notifications are attempted independently of report generation so a report bug
-        // cannot silence a production run that still has results worth sending.
+        List<String> configuredClientNames = clients.stream()
+                .map(this::safeClientName)
+                .toList();
+
         if (htmlReportPath != null) {
             final String reportPath = htmlReportPath;
-            List<String> configuredClientNames = clients.stream()
-                    .map(this::safeClientName)
-                    .toList();
-            notifySafely(clientFailures, "Google Chat", () -> GoogleChatNotifier.notify(allStatuses, clientFailures, configuredClientNames, reportPath));
+            notifySafely(clientFailures, "Google Chat",
+                    () -> GoogleChatNotifier.notify(allStatuses, clientFailures, configuredClientNames, reportPath));
             notifySafely(clientFailures, "Email", () -> EmailNotifier.notify(allStatuses, reportPath));
         } else {
-            clientFailures.add("NOTIFICATION :: Skipped because no HTML report could be generated.");
+            clientFailures.add("NOTIFICATION :: No HTML report was generated.");
         }
 
         if (!clientFailures.isEmpty()) {
@@ -175,10 +173,6 @@ public class MultiClientAdminJobsTest {
                 "Invalid runMode: " + runMode + ". Allowed values are single or multiple.");
     }
 
-    /**
-     * The report groups rows by client display name, so two clients sharing a name would
-     * silently collapse into one another. Returns a list with duplicates renamed by host.
-     */
     private List<ClientConfig> disambiguateDuplicateClientNames(List<ClientConfig> clients) {
         Map<String, Integer> seen = new LinkedHashMap<>();
         List<ClientConfig> result = new ArrayList<>();
@@ -208,7 +202,6 @@ public class MultiClientAdminJobsTest {
                 return host;
             }
         } catch (Exception ignored) {
-            // Fall through to the identity-based suffix.
         }
         return "client " + Integer.toHexString(System.identityHashCode(client));
     }
@@ -251,10 +244,8 @@ public class MultiClientAdminJobsTest {
 
             action.markStep("monitor configured jobs");
             statuses = adminJobsPage.monitorAllConfiguredJobs();
-            validateMonitoringData(statuses);
+            validateMonitoringData(statuses, clientNameOf(client), clientFailuresForValidation(statuses));
         } catch (Exception e) {
-            // A genuine failure records the step it stopped at, the URL, the title, the page
-            // readiness and a screenshot, so it can be diagnosed without rerunning the suite.
             failureMessage = action == null
                 ? safeMessage(e)
                 : action.captureFailure(safeMessage(e));
@@ -262,7 +253,7 @@ public class MultiClientAdminJobsTest {
             if (driver != null) {
                 if (loginSucceeded && loginPage != null && !loginPage.isLoginPageVisible()) {
                     if (client.isSso()) {
-                        System.out.println("[CLIENT LOGOUT] Skipping logout for SSO client â€” SSO session persists and auto-login would occur.");
+                        System.out.println("[CLIENT LOGOUT] Skipping logout for SSO client — SSO session persists and auto-login would occur.");
                     } else {
                         try {
                             logoutAndConfirmSignIn(driver, loginPage, new ConfigReader(client), client.isSso());
@@ -284,6 +275,21 @@ public class MultiClientAdminJobsTest {
         }
 
         return new ClientRunResult(statuses, failureMessage);
+    }
+
+    private String clientNameOf(ClientConfig client) {
+        return safeClientName(client);
+    }
+
+    private List<String> clientFailuresForValidation(List<JobStatus> statuses) {
+        List<String> issues = new ArrayList<>();
+        JobStatus post = findOptional(statuses, "Post Receipts Job");
+        if (post != null && post.getFailedCount() > 0
+                && (post.getFailureReasons() == null || post.getFailureReasons().isEmpty())
+                && (post.getJobFailureReason() == null || post.getJobFailureReason().isBlank())) {
+            issues.add("Failed receipts were found but no receipt-level failure reason was captured.");
+        }
+        return issues;
     }
 
     private void logoutAndConfirmSignIn(
@@ -311,7 +317,7 @@ public class MultiClientAdminJobsTest {
         System.out.println("[CLIENT LOGOUT] Sign-in state confirmed.");
     }
 
-    private void validateMonitoringData(List<JobStatus> statuses) {
+    private void validateMonitoringData(List<JobStatus> statuses, String clientName, List<String> captureIssues) {
         Assert.assertNotNull(statuses, "Job monitoring data must not be null.");
         Assert.assertTrue(statuses.size() >= 2 && statuses.size() <= 3, "Expected two required jobs and at most one optional Upcoming Demand job.");
 
@@ -325,13 +331,14 @@ public class MultiClientAdminJobsTest {
 
         JobStatus post = findRequired(statuses, "Post Receipts Job");
         if (post.getFailedCount() > 0) {
-            // Partial capture is acceptable as long as the gap is explained on the row.
             boolean reasonsCaptured = !post.getFailureReasons().isEmpty();
             boolean gapExplained = post.getJobFailureReason() != null
-                    && post.getJobFailureReason().contains("Receipt capture incomplete");
-            Assert.assertTrue(
-                    reasonsCaptured || gapExplained,
-                    "Failed receipts were found but no reason or capture-gap note was recorded.");
+                    && !post.getJobFailureReason().isBlank();
+
+            if (!reasonsCaptured && !gapExplained) {
+                throw new IllegalStateException(
+                        "Failed receipts were found but no receipt-level failure reason or capture-gap note was recorded.");
+            }
         }
 
         for (JobStatus status : statuses) {
