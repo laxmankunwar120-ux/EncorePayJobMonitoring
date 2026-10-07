@@ -120,7 +120,7 @@ public final class GoogleChatNotifier {
         message.append("CLIENT JOB STATUS\n\n");
 
         for (int i = 0; i < clients.size(); i++) {
-            appendClient(message, i + 1, clients.get(i), jobs);
+            appendClient(message, i + 1, clients.get(i), jobs, clientFailures);
         }
 
         appendTechnicalIssues(message, clientFailures, jobs);
@@ -152,16 +152,31 @@ public final class GoogleChatNotifier {
         return new ArrayList<>(names);
     }
 
-    private static void appendClient(StringBuilder message, int number, String client, List<JobStatus> jobs) {
+    private static void appendClient(
+            StringBuilder message,
+            int number,
+            String client,
+            List<JobStatus> jobs,
+            List<String> clientFailures) {
+
         message.append(number).append(". *").append(client).append("*\n");
 
         JobStatus post = findJob(jobs, client, POST_RECEIPTS);
         JobStatus collections = findJob(jobs, client, COLLECTIONS);
         JobStatus upcoming = findJob(jobs, client, UPCOMING);
 
-        appendJobLine(message, "Post Receipts", post);
-        appendJobLine(message, "Collection Items", collections);
+        if (post == null && collections == null && upcoming == null) {
+            message.append("  Monitoring       : FAILED\n");
+            message.append("\n");
+            return;
+        }
 
+        if (post != null) {
+            appendJobLine(message, "Post Receipts", post);
+        }
+        if (collections != null) {
+            appendJobLine(message, "Collection Items", collections);
+        }
         if (upcoming != null) {
             appendJobLine(message, "Upcoming Demand", upcoming);
         }
