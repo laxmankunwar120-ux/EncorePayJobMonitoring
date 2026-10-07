@@ -1035,10 +1035,39 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
-                WebElement openTrigger = visibleElement(OPEN_RECEIPT_MENU_TRIGGER);
-                if (openTrigger != null) {
-                    jsClick(openTrigger);
+                List<WebElement> backdrops = driver.findElements(MENU_BACKDROP);
+                for (WebElement backdrop : backdrops) {
+                    try {
+                        if (!isDisplayed(backdrop)) continue;
+
+                        ((JavascriptExecutor) driver).executeScript(
+                                "arguments[0].click();",
+                                backdrop);
+
+                        if (waitForMenuClosedFast()) {
+                            return true;
+                        }
+
+                        org.openqa.selenium.Dimension size = backdrop.getSize();
+                        int xOffset = Math.max(5, -size.getWidth() / 2 + 10);
+                        int yOffset = Math.max(5, -size.getHeight() / 2 + 10);
+
+                        new Actions(driver)
+                                .moveToElement(backdrop, xOffset, yOffset)
+                                .click()
+                                .perform();
+
+                        if (waitForMenuClosedFast()) {
+                            return true;
+                        }
+                    } catch (Exception ignored) {
+                    }
                 }
+            } catch (Exception ignored) {
+            }
+
+            try {
+                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
             } catch (Exception ignored) {
             }
 
@@ -1047,7 +1076,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
 
             try {
-                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
+                WebElement openTrigger = visibleElement(OPEN_RECEIPT_MENU_TRIGGER);
+                if (openTrigger != null) {
+                    jsClick(openTrigger);
+                }
             } catch (Exception ignored) {
             }
 
