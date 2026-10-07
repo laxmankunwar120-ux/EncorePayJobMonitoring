@@ -50,14 +50,7 @@ public class JobStatus {
     public List<String> getFailureReasons() {
         List<String> result = new ArrayList<>();
         for (Map.Entry<String, Integer> entry : failureReasonCounts.entrySet()) {
-            String code = entry.getKey();
-            int count = entry.getValue();
-            String bracket = extractCode(code);
-            if (bracket != null) {
-                result.add(bracket + " (" + count + " accounts)");
-            } else {
-                result.add(code + " (" + count + " accounts)");
-            }
+            result.add(entry.getKey() + " (" + entry.getValue() + " accounts)");
         }
         return Collections.unmodifiableList(result);
     }
@@ -77,10 +70,8 @@ public class JobStatus {
      */
     public void addFailureReason(String reason) {
         if (reason == null || reason.isBlank()) return;
-        String clean = reason.trim();
-        String code = extractCode(clean);
-        String key = (code != null && !code.isBlank()) ? code : clean;
-        failureReasonCounts.merge(key, 1, Integer::sum);
+        String clean = reason.replaceAll("\\s+", " ").trim();
+        failureReasonCounts.merge(clean, 1, Integer::sum);
     }
 
     public String getValidationMessage() { return validationMessage; }
