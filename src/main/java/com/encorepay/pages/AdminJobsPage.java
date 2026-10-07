@@ -107,7 +107,7 @@ static {
     private static final By RECEIPT_ERROR_ICON = By.xpath(".//div[contains(@class,'material-symbols-rounded') and normalize-space()='error_outline']");
     private static final By MENU_BACKDROP = By.cssSelector(".cdk-overlay-backdrop, .cdk-overlay-dark-backdrop");
 private static final By FAILURE_MENU = By.cssSelector(".cdk-overlay-pane .mat-mdc-menu-panel, .cdk-overlay-pane .mat-menu-panel");
-    private static final By FAILURE_MENU_CLOSE = By.xpath("//div[contains(@class,'cdk-overlay-pane')]//button[.//span[contains(@class,'material-symbols-rounded') and (normalize-space()='close' or normalize-space()='clear')]]");
+    private static final By FAILURE_MENU_CLOSE = By.xpath("//div[contains(@class,'cdk-overlay-pane')]//button[.//span[contains(@class,'material-symbols-rounded') and (normalize-space()='close' or normalize-space()='clear')]] | //div[contains(@class,'mat-mdc-menu-panel')]//button[.//span[normalize-space()='close' or normalize-space()='clear']]");
     private static final By RECEIPTS_HEADING = By.xpath(
             "//app-receipts//h1[contains(normalize-space(),'Post-Receipts')] | //h1[contains(normalize-space(),'Post-Receipts')]");
     private static final By RECEIPT_CLOSE = By.xpath("//app-receipts//button[.//span[contains(@class,'material-symbols-rounded') and normalize-space()='close']]");
@@ -300,7 +300,7 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
         return status;
     }
 
-    private ReceiptCapture captureReceiptStatus(String postingStatus, boolean inspectReasons) {
+private ReceiptCapture captureReceiptStatus(String postingStatus, boolean inspectReasons) {
         validateSessionAndWindow();
         ensureReceiptPage();
         ensureReceiptFiltersVisible();
@@ -311,14 +311,18 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
         if (!selectPostingStatus(postingStatus)) {
             capture.problems.add("LMS Posting Status '" + postingStatus
                     + "' is not offered for this client, so its count could not be captured");
+            log("[CAPTURE] " + postingStatus + " - status not available in dropdown");
             return capture;
         }
 
+        resetReceiptPagination();
         searchReceipts(postingStatus, capture);
 
         capture.totalCount = readReceiptTotalCount(capture);
 
         validateReceiptCapture(capture, postingStatus);
+
+        log("[CAPTURE] " + postingStatus + " - total count: " + capture.totalCount + ", problems: " + capture.problems.size());
 
         if (inspectReasons && capture.totalCount > 0) {
             ReasonScan scan = readUniqueFailureReasons();
@@ -327,6 +331,19 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
         }
 
         return capture;
+    }
+
+    private void resetReceiptPagination() {
+        try {
+            WebElement firstPage = visibleElement(By.cssSelector(
+                    "app-receipts div.paginator-container button[aria-label='First page'], "
+                    + "app-receipts button[aria-label*='First page']"));
+            if (firstPage != null && firstPage.isEnabled()) {
+                clickAndWait(firstPage);
+                waitForReceiptResults();
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private void validateReceiptCapture(ReceiptCapture capture, String postingStatus) {
@@ -352,7 +369,7 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
         return today;
     }
 
-    private boolean selectPostingStatus(String status) {
+private boolean selectPostingStatus(String status) {
         WebElement selectElement = wait.until(
             ExpectedConditions.elementToBeClickable(LMS_POSTING_STATUS)
         );
@@ -373,6 +390,7 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
         }
 
         if (!matched) {
+            log("[SELECT STATUS] Failed to select '" + status + "' - not found in dropdown");
             return false;
         }
 
@@ -380,6 +398,7 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
             d -> status.equalsIgnoreCase(
                 new Select(d.findElement(LMS_POSTING_STATUS)).getFirstSelectedOption().getText().trim()
             ));
+        log("[SELECT STATUS] Successfully selected '" + status + "'");
         return true;
     }
 
@@ -430,6 +449,8 @@ private JobStatus unavailableJobPlaceholder(String clientName, String jobName, E
             capture.problems.add("Posting status filter was applied as '" + appliedStatus
                     + "' instead of " + expectedStatus);
         }
+
+        log("[SEARCH] " + expectedStatus + " - paginator: '" + readPaginatorRange() + "', rows: " + visibleReceiptRows().size());
     }
 
     
@@ -600,25 +621,30 @@ this.reasons = reasons;
                             + " (signature: " + rowSignature + "), skipping to prevent infinite loop");
                 }
 
-                scrollIntoViewSmooth(icon);
-                fastClick(icon);
+                // Fast scroll and click
+                scrollIntoViewFast(icon);
+                jsClick(icon);
 
-                try {
-                    shortWait.until(d -> isFailureReasonMenuOpen());
-                } catch (RuntimeException e) {
+                // Wait for menu to appear - quick check
+                int menuWait = 0;
+                while (menuWait < 10 && !isFailureReasonMenuOpen()) {
+                    try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+                    menuWait++;
+                }
+                if (!isFailureReasonMenuOpen()) {
                     throw new RuntimeException("Failure reason menu did not open after clicking icon");
                 }
 
-                String reason = readFailureReason();
+                String reason = readFailureReasonFast();
 
                 if (reason.isBlank()) {
-                    closeFailureReasonMenuInternal();
+                    closeFailureReasonMenuFast();
                     throw new RuntimeException("No failure reason captured");
                 }
 
                 reasons.add(trimReason(reason));
 
-                if (!closeFailureReasonMenuInternal()) {
+                if (!closeFailureReasonMenuFast()) {
                     throw new RuntimeException("Failed to close failure reason menu after reading reason");
                 }
 
@@ -626,51 +652,89 @@ this.reasons = reasons;
             }, 3);
         } catch (RetryUtils.RetryExhaustedException e) {
             problems.add("FAILED receipt row " + (index + 1) + " error: " + e.getCause().getMessage());
-            closeFailureReasonMenuInternal();
+            closeFailureReasonMenuFast();
             return false;
         }
     }
 
-    private boolean closeFailureReasonMenuInternal() {
-        for (int attempt = 0; attempt < 3 && isFailureReasonMenuOpen(); attempt++) {
-            // Try to click close button inside the menu first
-            try {
-                WebElement closeBtn = visibleElement(FAILURE_MENU_CLOSE);
-                if (closeBtn != null) {
-                    fastClick(closeBtn);
-                    if (waitForMenuClosed()) return true;
-                }
-            } catch (Exception ignored) {
-            }
-
-            // Try ESC key
-            try {
-                driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
-            } catch (Exception ignored) {
-            }
-            if (waitForMenuClosed()) return true;
-
-            // Try clicking backdrop
-            for (By safeTarget : List.of(MENU_BACKDROP, RECEIPTS_HEADING)) {
-                try {
-                    WebElement target = visibleElement(safeTarget);
-                    if (target == null) continue;
-                    new Actions(driver).moveToElement(target).click().perform();
-                    if (waitForMenuClosed()) return true;
-                } catch (Exception ignored) {
-                }
-            }
-
-            // Final ESC attempt
-            try {
-                if (isFailureReasonMenuOpen()) {
-                    driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
-                    if (waitForMenuClosed()) return true;
-                }
-            } catch (Exception ignored) {
-            }
+    private void scrollIntoViewFast(WebElement element) {
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                "arguments[0].scrollIntoView({block:'center', inline:'nearest'});", element);
+        } catch (Exception ignored) {
         }
+    }
+
+    private String readFailureReasonFast() {
+        try {
+            List<WebElement> menus = driver.findElements(FAILURE_MENU);
+            for (int i = menus.size() - 1; i >= 0; i--) {
+                WebElement menu = menus.get(i);
+                if (!isDisplayed(menu)) continue;
+                String text = clean(menu.getText());
+                if (!text.isBlank()) return text;
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private boolean closeFailureReasonMenuFast() {
+        // Try JS click on close button first (fastest)
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                "var btn = document.querySelector('.cdk-overlay-pane .mat-mdc-menu-panel button[aria-label=\"Close\"], " +
+                "  .cdk-overlay-pane .mat-menu-panel button[aria-label=\"Close\"], " +
+                "  .cdk-overlay-pane button .material-symbols-rounded');" +
+                "if (btn) { btn.click(); return true; }" +
+                "var spans = document.querySelectorAll('.cdk-overlay-pane .material-symbols-rounded');" +
+                "for (var i = 0; i < spans.length; i++) { " +
+                "  if (spans[i].textContent.trim() === 'close' || spans[i].textContent.trim() === 'clear') { " +
+                "    spans[i].closest('button')?.click(); return true; } }" +
+                "return false;");
+            if (waitForMenuClosedFast()) return true;
+        } catch (Exception ignored) {
+        }
+
+        // Try ESC key
+        try {
+            driver.switchTo().activeElement().sendKeys(Keys.ESCAPE);
+            if (waitForMenuClosedFast()) return true;
+        } catch (Exception ignored) {
+        }
+
+        // Click backdrop
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                "var backdrop = document.querySelector('.cdk-overlay-backdrop, .cdk-overlay-dark-backdrop');" +
+                "if (backdrop) { backdrop.click(); return true; } return false;");
+            if (waitForMenuClosedFast()) return true;
+        } catch (Exception ignored) {
+        }
+
+        // Final JS force close
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                "var menus = document.querySelectorAll('.cdk-overlay-pane .mat-mdc-menu-panel, .cdk-overlay-pane .mat-menu-panel');" +
+                "for (var i = 0; i < menus.length; i++) { menus[i].style.display = 'none'; }");
+            if (waitForMenuClosedFast()) return true;
+        } catch (Exception ignored) {
+        }
+
         return !isFailureReasonMenuOpen();
+    }
+
+    private boolean waitForMenuClosedFast() {
+        try {
+            int wait = 0;
+            while (wait < 10 && isFailureReasonMenuOpen()) {
+                try { Thread.sleep(30); } catch (InterruptedException ignored) {}
+                wait++;
+            }
+            return !isFailureReasonMenuOpen();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private String getRowSignatureForIndex(int index, Set<String> seenRowSignatures) {
@@ -683,46 +747,7 @@ this.reasons = reasons;
         return "";
     }
 
-    private String readFailureReason() {
-
-        try {
-            return clean(shortWait.until(d -> {
-                List<WebElement> menus = d.findElements(FAILURE_MENU);
-
-                for (int i = menus.size() - 1; i >= 0; i--) {
-                    WebElement menu = menus.get(i);
-                    if (!isDisplayed(menu)) continue;
-
-                    String text = clean(menu.getText());
-                    if (!text.isBlank()) return text;
-                }
-
-                return null;
-            }));
-        } catch (RuntimeException e) {
-            return "";
-        }
-    }
-
-    private void scrollIntoViewSmooth(WebElement element) {
-        try {
-            ((JavascriptExecutor) driver).executeScript(
-                "arguments[0].scrollIntoView({block:'center', inline:'nearest', behavior:'smooth'});", element);
-
-            Thread.sleep(300);
-        } catch (RuntimeException | InterruptedException ignored) {
-        }
-    }
-
-    private void fastClick(WebElement element) {
-        try {
-            ((JavascriptExecutor) driver).executeScript("arguments[0].click();", element);
-        } catch (RuntimeException e) {
-            try { element.click(); } catch (Exception ignored) { }
-        }
-}
-
-    private boolean isFailureReasonMenuOpen() {
+private boolean isFailureReasonMenuOpen() {
         try {
             return driver.findElements(FAILURE_MENU).stream().anyMatch(this::isDisplayed);
         } catch (Exception e) {
@@ -730,16 +755,7 @@ this.reasons = reasons;
         }
     }
 
-    private boolean waitForMenuClosed() {
-        try {
-            shortWait.until(d -> d.findElements(FAILURE_MENU).stream().noneMatch(this::isDisplayed));
-            return true;
-        } catch (RuntimeException e) {
-            return false;
-        }
-    }
-
-    private void captureLatestExecutionFromJobsList(String jobName, JobStatus status) {
+private void captureLatestExecutionFromJobsList(String jobName, JobStatus status) {
         validateSessionAndWindow();
         ensureJobsPage();
         WebElement jobRow = requireJobRow(jobName);
@@ -783,7 +799,7 @@ this.reasons = reasons;
             dateTime = findDateTime(clean(latestExecutionRow.getText()));
         }
 
-if (executionStatus.isBlank()) {
+        if (executionStatus.isBlank()) {
             executionStatus = readStatusFromModalText(modal.getText());
         }
 
@@ -793,6 +809,8 @@ if (executionStatus.isBlank()) {
         if (dateTime.isBlank()) {
             dateTime = "N/A";
         }
+
+        log("[EXECUTION] " + jobName + " - status: " + executionStatus + ", datetime: " + dateTime);
 
         validateExecutionData(executionStatus, dateTime, jobName, status);
 

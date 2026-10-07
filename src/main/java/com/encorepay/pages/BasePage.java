@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
@@ -304,8 +305,41 @@ public class BasePage {
         action.waitForTransientFeedbackToClear();
     }
 
-    protected WebElement findVisibleElement(By locator) {
+    protected <T> T retry(Function<WebDriver, T> operation) {
+        return RetryUtils.retry(() -> operation.apply(driver));
+    }
+
+    protected <T> T retry(Function<WebDriver, T> operation, int maxAttempts) {
+        return RetryUtils.retry(() -> operation.apply(driver), maxAttempts);
+    }
+
+    protected void retry(Runnable operation) {
+        RetryUtils.run(operation);
+    }
+
+    protected void retry(Runnable operation, int maxAttempts) {
+        RetryUtils.run(operation, maxAttempts);
+    }
+
+    protected WebElement findVisibleWithRetry(By locator) {
         return action.findVisible(locator);
+    }
+
+    protected WebElement findVisibleWithRetry(By locator, int maxAttempts) {
+        return RetryUtils.retryFindElement(driver, d -> action.findVisible(locator), maxAttempts);
+    }
+
+    protected boolean clickWithRetry(WebElement element) {
+        try {
+            RetryUtils.retryClick(element);
+            return true;
+        } catch (RetryUtils.RetryExhaustedException e) {
+            return false;
+        }
+    }
+
+    protected WebElement visibleElement(By locator) {
+        return wait.until(ExpectedConditions.visibilityOfElementLocated(locator));
     }
 
     protected void clearAndType(WebElement element, String value) {

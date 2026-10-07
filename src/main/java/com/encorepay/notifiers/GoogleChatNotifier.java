@@ -92,26 +92,25 @@ public final class GoogleChatNotifier {
         message.append("```").append("\n");
         message.append("ENCOREPAY JOB MONITORING REPORT\n");
         message.append("Run Date : ").append(reportTime).append("\n");
-        message.append("Clients  : ").append(totalClients).append(" (").append(monitoredClients).append(" monitored, ").append(unmonitoredCount).append(" unmonitored)\n\n");
+        message.append("Clients  : ").append(totalClients).append("\n\n");
 
-        message.append("═══════════════════════════════════════════════════════════════════\n");
-        message.append("                          SUMMARY\n");
-        message.append("═══════════════════════════════════════════════════════════════════\n");
+        message.append("SUMMARY\n");
 
         long successfulJobs = jobs.stream().filter(j -> isSuccessful(j.getStatus())).count();
         long failedJobs = jobs.stream().filter(j -> isFailed(j.getStatus())).count();
         long partialSuccessJobs = jobs.stream().filter(j -> isPartialSuccess(j.getStatus())).count();
         long notRunJobs = jobs.stream().filter(j -> isNotRun(j.getStatus())).count();
 
-        message.append(String.format("  ✅ Successful Jobs       : %d\n", successfulJobs));
+        message.append(String.format("%-25s: %d\n", "Total Clients", totalClients));
+        message.append(String.format("%-25s: %d\n", "Successful Jobs", successfulJobs));
         if (failedJobs > 0) {
-            message.append(String.format("  ❌ Failed Jobs            : %d\n", failedJobs));
+            message.append(String.format("%-25s: %d\n", "Failed Jobs", failedJobs));
         }
         if (partialSuccessJobs > 0) {
-            message.append(String.format("  ⚠️  Partial Success Jobs   : %d\n", partialSuccessJobs));
+            message.append(String.format("%-25s: %d\n", "Partial Success Jobs", partialSuccessJobs));
         }
         if (notRunJobs > 0) {
-            message.append(String.format("  ⏭️  Not Run / Not Configured: %d\n", notRunJobs));
+            message.append(String.format("%-25s: %d\n", "Not Run / Not Configured", notRunJobs));
         }
 
         message.append("\n");
@@ -123,9 +122,8 @@ public final class GoogleChatNotifier {
         message.append(buildReceiptFailureSection(jobs));
 
         if (clientFailures != null && !clientFailures.isEmpty()) {
-            message.append("═══════════════════════════════════════════════════════════════════\n");
-            message.append("                    UNMONITORED CLIENTS\n");
-            message.append("═══════════════════════════════════════════════════════════════════\n");
+            message.append("UNMONITORED CLIENTS\n");
+            message.append("-------------------\n");
             for (String failure : clientFailures) {
                 if (failure != null && !failure.isBlank()) {
                     String cleanMsg = extractClientFailureMessage(failure);
@@ -149,50 +147,43 @@ public final class GoogleChatNotifier {
         if (jobList.isEmpty()) return "";
 
         String title;
-        String emoji;
         switch (jobName) {
             case "Post Receipts Job":
                 title = "1. POST RECEIPTS JOB";
-                emoji = "📋";
                 break;
             case "Encore Download Collection Items Job":
                 title = "2. DOWNLOAD COLLECTION ITEMS JOB";
-                emoji = "📥";
                 break;
             case "Encore Up Coming Demands Job":
                 title = "3. UPCOMING DEMAND JOB";
-                emoji = "📅";
                 break;
             default:
                 title = jobName.toUpperCase();
-                emoji = "📋";
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append("═══════════════════════════════════════════════════════════════════\n");
-        sb.append("  ").append(emoji).append("  ").append(title).append("\n");
-        sb.append("═══════════════════════════════════════════════════════════════════\n");
+        sb.append(title).append("\n");
 
         if (includeCounts) {
-            sb.append(String.format("  %-20s  %-12s  %8s  %8s  %s\n",
-                    padRight("Client", 20), padRight("Status", 12), padRight("Failed", 8), padRight("Pending", 8), "End Date/Time"));
-            sb.append("  ").append("-".repeat(80)).append("\n");
+            sb.append(String.format("%-18s %-12s %8s %8s %s\n",
+                    "Client", "Status", "Failed", "Pending", "End Date/Time"));
+            sb.append("-".repeat(70)).append("\n");
         } else {
-            sb.append(String.format("  %-20s  %-12s  %s\n",
-                    padRight("Client", 20), padRight("Status", 12), "Start/End Date/Time"));
-            sb.append("  ").append("-".repeat(70)).append("\n");
+            sb.append(String.format("%-18s %-12s %s\n",
+                    "Client", "Status", "Start/End Date/Time"));
+            sb.append("-".repeat(60)).append("\n");
         }
 
         for (JobStatus job : jobList) {
-            String client = truncate(safe(job.getClientName()), 18);
+            String client = truncate(safe(job.getClientName()), 16);
             String status = truncate(safe(job.getStatus()), 10);
             String dateTime = safe(job.getDateTime());
 
             if (includeCounts) {
-                sb.append(String.format("  %-20s  %-12s  %8d  %8d  %s\n",
+                sb.append(String.format("%-18s %-12s %8d %8d %s\n",
                         client, status, job.getFailedCount(), job.getPendingCount(), dateTime));
             } else {
-                sb.append(String.format("  %-20s  %-12s  %s\n",
+                sb.append(String.format("%-18s %-12s %s\n",
                         client, status, dateTime));
             }
         }
@@ -206,18 +197,16 @@ public final class GoogleChatNotifier {
         if (receiptFailuresByClient.isEmpty()) return "";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("═══════════════════════════════════════════════════════════════════\n");
-        sb.append("  🔍  RECEIPT FAILURE REASONS (grouped by unique reason)\n");
-        sb.append("═══════════════════════════════════════════════════════════════════\n");
+        sb.append("FAILED RECEIPT REASONS\n");
 
         for (Map.Entry<String, Map<String, Integer>> entry : receiptFailuresByClient.entrySet()) {
             String client = entry.getKey();
             Map<String, Integer> reasons = entry.getValue();
-            int totalFailures = reasons.values().stream().mapToInt(Integer::intValue).sum();
-            sb.append(String.format("  %s — %d failure(s)\n", client, totalFailures));
+            sb.append(client).append("\n");
             for (Map.Entry<String, Integer> reasonEntry : reasons.entrySet()) {
-                String reason = truncate(reasonEntry.getKey(), 80);
-                sb.append(String.format("     • %s  —  %d\n", reason, reasonEntry.getValue()));
+                String reason = reasonEntry.getKey();
+                int count = reasonEntry.getValue();
+                sb.append("  ").append(reason).append(" (").append(count).append(" account").append(count > 1 ? "s" : "").append(")\n");
             }
             sb.append("\n");
         }
@@ -304,19 +293,17 @@ public final class GoogleChatNotifier {
         String runId = System.getenv("GITHUB_RUN_ID");
         String reportUrl = System.getenv("REPORT_URL");
 
-        message.append("═══════════════════════════════════════════════════════════════════\n");
-        message.append("  📁  REPORTS & LINKS\n");
-        message.append("═══════════════════════════════════════════════════════════════════\n");
+        message.append("REPORTS\n");
 
         if (reportUrl != null && !reportUrl.isBlank()) {
-            message.append("  📄  Direct Report: ").append(reportUrl.trim()).append("\n");
+            message.append("  Direct Report: ").append(reportUrl.trim()).append("\n");
         }
 
         if (server != null && !server.isBlank()
                 && repository != null && !repository.isBlank()
                 && runId != null && !runId.isBlank()) {
             String artifactUrl = server.trim() + "/" + repository.trim() + "/actions/runs/" + runId.trim() + "#artifacts";
-            message.append("  🔗  GitHub Run: ").append(artifactUrl).append("\n");
+            message.append("  GitHub Run: ").append(artifactUrl).append("\n");
         }
         message.append("\n");
     }
@@ -368,13 +355,7 @@ public final class GoogleChatNotifier {
 
     private static String truncate(String value, int maxLength) {
         String text = safe(value);
-        if (text.length() <= maxLength) return padRight(text, maxLength);
+        if (text.length() <= maxLength) return text;
         return text.substring(0, maxLength - 1) + "…";
-    }
-
-    private static String padRight(String value, int width) {
-        String t = safe(value);
-        if (t.length() >= width) return t;
-        return t + " ".repeat(width - t.length());
     }
 }
