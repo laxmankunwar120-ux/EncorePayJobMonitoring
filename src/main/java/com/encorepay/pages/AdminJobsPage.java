@@ -301,8 +301,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     }
 
     private void captureReceiptFailureReasonsFallback(JobStatus status) {
-        try {
-            WebElement jobRow = requireJobRow(JOB_POST_RECEIPTS);
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                ensureJobsPage();
+                WebElement jobRow = requireJobRow(JOB_POST_RECEIPTS);
             WebElement receiptButton = visibleInside(jobRow, RECEIPT_ACTION);
             if (receiptButton == null) {
                 status.setJobFailureReason("Failed receipts were found, but the Receipt action was unavailable for fallback reason capture.");
@@ -327,17 +329,38 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             if (status.getFailureReasons().isEmpty() && status.getFailedCount() > 0) {
                 status.setJobFailureReason("Failed receipts were found, but no receipt-level failure reason could be captured.");
             }
-        } catch (Exception e) {
-            status.setJobFailureReason("Failed receipts were found, but fallback reason capture failed: "
-                    + e.getClass().getSimpleName() + ": " + safeText(e));
-        } finally {
-            try {
-                closeReceiptPageUsingUi();
-            } catch (Exception ignored) {
-                try {
-                    ensureJobsPage();
-                } catch (Exception ignoredAgain) {
+            } catch (Exception e) {
+                String note = "Fallback reason capture attempt " + attempt + " failed: "
+                        + e.getClass().getSimpleName() + ": " + safeText(e);
+                System.out.println("[WARN] " + status.getClientName() + " :: " + note);
+
+                if (attempt == 3) {
+                    status.setJobFailureReason("Failed receipts were found, but fallback reason capture failed after 3 attempts: "
+                            + e.getClass().getSimpleName() + ": " + safeText(e));
+                } else {
+                    try {
+                        closeReceiptPageUsingUi();
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        ensureJobsPage();
+                    } catch (Exception ignored) {
+                    }
+                    pause(1000L * attempt);
                 }
+            } finally {
+                try {
+                    closeReceiptPageUsingUi();
+                } catch (Exception ignored) {
+                    try {
+                        ensureJobsPage();
+                    } catch (Exception ignoredAgain) {
+                    }
+                }
+            }
+
+            if (!status.getFailureReasons().isEmpty()) {
+                return;
             }
         }
     }
@@ -518,17 +541,11 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             ExpectedConditions.elementToBeClickable(RECEIPT_SEARCH)
         );
 
-        // The query string updates as soon as the search is requested, which happens before the
-        // new rows arrive. The previous result set is recorded so a filter that changed nothing
-        // can still be told apart from one that never ran.
         String rangeBefore = readPaginatorRange();
         String signatureBefore = receiptResultsSignature();
 
         clickAndWait(search);
 
-        // The app acknowledges the filter by rewriting the query string, which is the signal it
-        // actually acts on. Waiting for the rows to change instead would stall on any client
-        // whose server-side filter legitimately returns an identical page.
         waitForState("the '" + expectedStatus + "' receipt search to be applied", d -> {
             WebElement selectElement = findVisibleLmsPostingStatusSelect();
             if (selectElement == null) {
@@ -541,13 +558,27 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     .getText()
                     .trim();
 
-                return expectedStatus.equalsIgnoreCase(selectedStatus);
+                if (!expectedStatus.equalsIgnoreCase(selectedStatus)) {
+                    return false;
+                }
+
+                String appliedStatus = queryParam("lmspostingstatus");
+                if (!appliedStatus.isBlank()) {
+                    return expectedStatus.equalsIgnoreCase(appliedStatus);
+                }
+
+                String rangeAfter = readPaginatorRange();
+                String signatureAfter = receiptResultsSignature();
+                return isReceiptEmpty()
+                        || (!rangeAfter.isBlank() && !rangeAfter.equals(rangeBefore))
+                        || (!signatureAfter.isBlank() && !signatureAfter.equals(signatureBefore));
             } catch (Exception e) {
                 return false;
             }
         });
 
         waitForReceiptResults();
+        waitForStableReceiptPaginator();
 
         String expectedDate = LocalDate.now(config.getBusinessZone()).toString();
         WebElement dateElement = visibleElement(RECEIPT_DATE);
@@ -595,17 +626,40 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
      * "(filtered from X)" suffix from being read as the record total.
      */
     private int readReceiptTotalCount(ReceiptCapture capture) {
+        waitForStableReceiptPaginator();
+
         String range = readPaginatorRange();
         Matcher matcher = PAGER_PATTERN.matcher(range);
         if (matcher.matches()) {
             return Integer.parseInt(matcher.group("total"));
         }
 
-        // Without a parsable label, only the rows on screen can be counted, and that shortfall
-        // is recorded as an incomplete capture rather than being passed off as the total.
         capture.problems.add("Receipt paginator label '" + clean(range)
-                + "' could not be read, so the failed count covers the rows on screen only");
+                + "' could not be read, so the filtered count could not be verified");
         return visibleReceiptRows().size();
+    }
+
+    private void waitForStableReceiptPaginator() {
+        final String[] last = {""};
+        final int[] stableReads = {0};
+
+        waitForState("the receipt paginator total to stabilize", d -> {
+            String current = readPaginatorRange();
+            if (current.isBlank()) {
+                stableReads[0] = 0;
+                last[0] = "";
+                return false;
+            }
+
+            if (current.equals(last[0])) {
+                stableReads[0]++;
+            } else {
+                last[0] = current;
+                stableReads[0] = 1;
+            }
+
+            return stableReads[0] >= 3;
+        });
     }
     private ReasonScan readUniqueFailureReasons() {
         List<String> reasons = new ArrayList<>();
@@ -906,7 +960,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         closeExecutionModalUsingUi();
 
-        if (receiptPostingFailure && status.getFailedCount() > 0) {
+        if (JOB_POST_RECEIPTS.equalsIgnoreCase(jobName) && status.getFailedCount() > 0) {
             status.clearFailureReasons();
             capturePostingLogFailureReasons(jobName, status);
         }
