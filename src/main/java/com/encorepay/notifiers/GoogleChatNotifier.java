@@ -102,11 +102,7 @@ public final class GoogleChatNotifier {
                 .filter(s -> isFailed(s.getStatus()))
                 .count();
 
-        long notRun = jobs.stream()
-                .filter(s -> isNotRun(s.getStatus()))
-                .count();
-
-        StringBuilder message = new StringBuilder();
+                StringBuilder message = new StringBuilder();
 
         message.append("ENCOREPAY JOB MONITORING REPORT\n\n")
                 .append("Run Date      : ")
@@ -119,13 +115,12 @@ public final class GoogleChatNotifier {
         message.append("OVERALL SUMMARY\n\n")
                 .append("Successful Jobs : ").append(successful).append("\n")
                 .append("Partial Jobs    : ").append(partial).append("\n")
-                .append("Failed Jobs     : ").append(failed).append("\n")
-                .append("Not Run Jobs    : ").append(notRun).append("\n\n");
+                .append("Failed Jobs     : ").append(failed).append("\n\n");
 
         message.append("CLIENT JOB STATUS\n\n");
 
-        for (String client : clients) {
-            appendClient(message, client, jobs);
+        for (int i = 0; i < clients.size(); i++) {
+            appendClient(message, i + 1, clients.get(i), jobs);
         }
 
         appendTechnicalIssues(message, clientFailures, jobs);
@@ -157,8 +152,8 @@ public final class GoogleChatNotifier {
         return new ArrayList<>(names);
     }
 
-    private static void appendClient(StringBuilder message, String client, List<JobStatus> jobs) {
-        message.append(client).append("\n");
+    private static void appendClient(StringBuilder message, int number, String client, List<JobStatus> jobs) {
+        message.append(number).append(". *").append(client).append("*\n");
 
         JobStatus post = findJob(jobs, client, POST_RECEIPTS);
         JobStatus collections = findJob(jobs, client, COLLECTIONS);
@@ -166,7 +161,10 @@ public final class GoogleChatNotifier {
 
         appendJobLine(message, "Post Receipts", post);
         appendJobLine(message, "Collection Items", collections);
-        appendJobLine(message, "Upcoming Demand", upcoming);
+
+        if (upcoming != null) {
+            appendJobLine(message, "Upcoming Demand", upcoming);
+        }
 
         if (post != null && post.getFailedCount() > 0) {
             message.append("  Failed Receipts  : ")
