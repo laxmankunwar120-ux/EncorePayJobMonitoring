@@ -403,28 +403,54 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         );
         Select select = new Select(selectElement);
 
-        boolean matched = false;
-        try {
-            select.selectByVisibleText(status);
-            matched = true;
-        } catch (Exception e) {
-            for (WebElement option : select.getOptions()) {
-                if (status.equalsIgnoreCase(option.getText().trim())) {
-                    select.selectByVisibleText(option.getText().trim());
-                    matched = true;
-                    break;
-                }
+        String targetValue = null;
+        String targetText = null;
+
+        for (WebElement option : select.getOptions()) {
+            String optionText = option.getText().trim();
+            String optionValue = option.getAttribute("value");
+            if (status.equalsIgnoreCase(optionText)
+                    || (optionValue != null && status.equalsIgnoreCase(optionValue))) {
+                targetValue = optionValue;
+                targetText = optionText;
+                break;
             }
         }
 
-        if (!matched) {
+        if (targetText == null) {
             return false;
         }
 
+        final String selectedValue = targetValue;
+        final String selectedText = targetText;
+
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                "var sel=arguments[0], val=arguments[1];"
+                    + "if(val!==null && val!==''){sel.value=val;}"
+                    + "sel.dispatchEvent(new Event('input',{bubbles:true}));"
+                    + "sel.dispatchEvent(new Event('change',{bubbles:true}));"
+                    + "sel.dispatchEvent(new Event('ngModelChange',{bubbles:true}));"
+                    + "sel.dispatchEvent(new Event('blur',{bubbles:true}));",
+                selectElement, selectedValue
+            );
+        } catch (Exception e) {
+            select.selectByVisibleText(selectedText);
+            ((JavascriptExecutor) driver).executeScript(
+                "arguments[0].dispatchEvent(new Event('input',{bubbles:true}));"
+                    + "arguments[0].dispatchEvent(new Event('change',{bubbles:true}));"
+                    + "arguments[0].dispatchEvent(new Event('blur',{bubbles:true}));",
+                selectElement
+            );
+        }
+
         waitForState("the '" + status + "' posting status option to be selected",
-            d -> status.equalsIgnoreCase(
-                new Select(d.findElement(LMS_POSTING_STATUS)).getFirstSelectedOption().getText().trim()
-            ));
+            d -> {
+                WebElement current = d.findElement(LMS_POSTING_STATUS);
+                return selectedText.equalsIgnoreCase(
+                    new Select(current).getFirstSelectedOption().getText().trim()
+                );
+            });
         return true;
     }
 
@@ -528,7 +554,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         return visibleReceiptRows().size();
     }
     private ReasonScan readUniqueFailureReasons() {
-        Set<String> reasons = new LinkedHashSet<>();
+        List<String> reasons = new ArrayList<>();
         Set<String> problems = new LinkedHashSet<>();
         Set<String> pages = new LinkedHashSet<>();
 
@@ -645,10 +671,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     /** Reasons collected from the error menus, plus non-fatal capture problems. */
     private static final class ReasonScan {
-        final Set<String> reasons;
+        final List<String> reasons;
         final Set<String> problems;
 
-        ReasonScan(Set<String> reasons, Set<String> problems) {
+        ReasonScan(List<String> reasons, Set<String> problems) {
             this.reasons = reasons;
             this.problems = problems;
         }
@@ -1850,7 +1876,7 @@ private void waitForJobDetailsPage(String jobName) {
 
     private static class ReceiptCapture {
         int totalCount;
-        Set<String> reasons = new LinkedHashSet<>();
+        List<String> reasons = new ArrayList<>();
         Set<String> problems = new LinkedHashSet<>();
     }
 }
