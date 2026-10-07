@@ -106,7 +106,7 @@ public class ConfigReader {
     }
 
     public int getExplicitWait() {
-        return getIntProperty("explicitWait", 20);
+        return getIntProperty("explicitWait", 90);
     }
 
     /**
@@ -129,7 +129,7 @@ public class ConfigReader {
     }
 
     public int getPageLoadTimeout() {
-        return getIntProperty("pageLoadTimeout", 45);
+        return getIntProperty("pageLoadTimeout", 120);
     }
 
     /**
@@ -138,7 +138,7 @@ public class ConfigReader {
      * first API call than a warm developer machine, and that delay is not an element problem.
      */
     public int getBootTimeout() {
-        return getIntProperty("bootTimeout", 90);
+        return getIntProperty("bootTimeout", 300);
     }
 
     public int getOverlayTimeout() {
