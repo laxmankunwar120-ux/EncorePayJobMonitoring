@@ -2557,3 +2557,4 @@ private void waitForJobDetailsPage(String jobName) {
         List<String> reasons = new ArrayList<>();
         Set<String> problems = new LinkedHashSet<>();
     }
+}
