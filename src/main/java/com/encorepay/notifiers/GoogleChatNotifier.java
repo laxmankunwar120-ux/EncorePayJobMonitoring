@@ -5,11 +5,9 @@ import com.encorepay.utilities.ConfigReader;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -125,7 +123,8 @@ public final class GoogleChatNotifier {
 
         appendTechnicalIssues(message, clientFailures, jobs);
 
-        message.append("REPORT STATUS\n\nCOMPLETED");
+        message.append("REPORT STATUS\n\n")
+                .append(containsHardFailure(jobs, clientFailures) ? "FAILED" : "COMPLETED");
 
         return message.toString();
     }
@@ -222,7 +221,10 @@ public final class GoogleChatNotifier {
         List<String> reasons = status.getFailureReasons();
 
         if (reasons == null || reasons.isEmpty()) {
-            message.append("  Failure Details   : Not captured\n");
+            String fallback = safe(status.getJobFailureReason());
+            message.append("  Failure Details   : ")
+                    .append(fallback.isBlank() ? "Not captured" : abbreviate(cleanReason(fallback), MAX_REASON_LENGTH))
+                    .append("\n");
             return;
         }
 
@@ -280,6 +282,29 @@ public final class GoogleChatNotifier {
         }
 
         message.append("\n");
+    }
+
+    private static boolean containsHardFailure(List<JobStatus> jobs, List<String> clientFailures) {
+        if (clientFailures != null) {
+            for (String failure : clientFailures) {
+                if (failure == null || failure.isBlank()) continue;
+                String normalized = failure.toUpperCase(Locale.ROOT);
+                if (!normalized.startsWith("REPORT GENERATION")
+                        && !normalized.startsWith("NOTIFICATION")) {
+                    return true;
+                }
+            }
+        }
+
+        for (JobStatus status : jobs) {
+            if (status == null) continue;
+            String value = safe(status.getStatus()).toUpperCase(Locale.ROOT);
+            if (value.contains("FAIL") && status.getFailedCount() <= 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static boolean isSuccessful(String status) {
