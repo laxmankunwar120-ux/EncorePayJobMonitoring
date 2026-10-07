@@ -535,34 +535,26 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 return false;
             }
 
-            String selectedStatus = new Select(selectElement)
-                .getFirstSelectedOption()
-                .getText()
-                .trim();
+            try {
+                String selectedStatus = new Select(selectElement)
+                    .getFirstSelectedOption()
+                    .getText()
+                    .trim();
 
-            if (!expectedStatus.equalsIgnoreCase(selectedStatus)) {
+                return expectedStatus.equalsIgnoreCase(selectedStatus);
+            } catch (Exception e) {
                 return false;
             }
-
-            return d.getCurrentUrl().toLowerCase(Locale.ROOT)
-                .contains("lmspostingstatus=" + expectedStatus.toLowerCase(Locale.ROOT));
         });
 
-        // The rows may still be re-rendering, so settle on rows, an explicit empty result, or a
-        // page that has no paginator at all.
-        boolean settled = wait.until(d ->
-            !visibleReceiptRows().isEmpty() || isReceiptEmpty() || readPaginatorRange().isBlank());
+        waitForReceiptResults();
 
-        if (!settled) {
-            capture.problems.add("The " + expectedStatus
-                    + " receipt results did not finish rendering (paginator '"
-                    + readPaginatorRange() + "')");
+        String expectedDate = LocalDate.now(config.getBusinessZone()).toString();
+        WebElement dateElement = visibleElement(RECEIPT_DATE);
+        if (dateElement == null || !expectedDate.equals(dateElement.getAttribute("value"))) {
+            capture.problems.add("Receipt date field is not set to " + expectedDate);
         }
 
-        // The app echoes the applied filters into the query string. Disagreement there means the
-        // counts below belong to a different filter than the one that was set, which would make
-        // the numbers wrong rather than merely missing.
-        String expectedDate = LocalDate.now(config.getBusinessZone()).toString();
         String appliedDate = queryParam("receiptdate");
         if (!appliedDate.isBlank() && !appliedDate.equalsIgnoreCase(expectedDate)) {
             capture.problems.add("Receipt date filter was applied as '" + appliedDate
@@ -933,26 +925,43 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private boolean normalizeReceiptPostingSummary(String reason, JobStatus status) {
         String text = clean(reason);
-        Matcher matcher = RECEIPT_POSTING_FAILURE.matcher(text);
-        if (!matcher.find()) {
+        String normalized = text.toUpperCase(Locale.ROOT);
+
+        boolean summaryDetected = normalized.contains("RECEIPT POSTING FAILURE")
+                || (normalized.contains("TOTAL") && normalized.contains("SUCCESS")
+                    && normalized.contains("FAILED") && normalized.contains("PARTIAL"));
+
+        if (!summaryDetected) {
             return false;
         }
 
-        int total = Integer.parseInt(matcher.group(1));
-        int success = Integer.parseInt(matcher.group(2));
-        int partial = Integer.parseInt(matcher.group(3));
-        int failed = Integer.parseInt(matcher.group(4));
+        Matcher matcher = RECEIPT_POSTING_FAILURE.matcher(text);
+        if (matcher.find()) {
+            int total = Integer.parseInt(matcher.group(1));
+            int success = Integer.parseInt(matcher.group(2));
+            int partial = Integer.parseInt(matcher.group(3));
+            int failed = Integer.parseInt(matcher.group(4));
 
-        if (failed > status.getFailedCount()) {
-            status.setFailedCount(failed);
+            if (failed > status.getFailedCount()) {
+                status.setFailedCount(failed);
+            }
+
+            System.out.println("[RECEIPT OUTCOME] Receipt Posting Failure summary detected: "
+                    + "Total=" + total + ", Success=" + success
+                    + ", Partially Success=" + partial + ", Failed=" + failed
+                    + ". Checking PostingLogs for receipt-level failure reasons.");
+            return failed > 0;
         }
 
-        System.out.println("[RECEIPT OUTCOME] Receipt Posting Failure summary detected: "
-                + "Total=" + total + ", Success=" + success
-                + ", Partially Success=" + partial + ", Failed=" + failed
-                + ". Checking PostingLogs for receipt-level failure reasons.");
+        boolean failedReceiptHint = normalized.contains("FAILED")
+                || normalized.contains("PARTIAL")
+                || status.getFailedCount() > 0;
 
-        return failed > 0;
+        if (failedReceiptHint) {
+            System.out.println("[RECEIPT OUTCOME] Receipt posting failure summary detected in variant format. Checking PostingLogs.");
+        }
+
+        return failedReceiptHint; 
     }
 
     private void capturePostingLogFailureReasons(String jobName, JobStatus status) {
@@ -969,14 +978,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         try {
             scrollIntoView(postingLogs);
             clickAndWait(postingLogs);
-
-            wait.until(d -> {
-                List<WebElement> modals = d.findElements(POSTING_LOGS_MODAL);
-                for (int i = modals.size() - 1; i >= 0; i--) {
-                    if (isDisplayed(modals.get(i))) return true;
-                }
-                return false;
-            });
+            waitForPostingLogsModal();
 
             List<String> reasons = new ArrayList<>();
             Set<String> pages = new LinkedHashSet<>();
@@ -984,6 +986,10 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             int pageGuard = 0;
 
             while (pageGuard++ < 100) {
+                if (!isPostingLogsModalOpen()) {
+                    throw new IllegalStateException("PostingLogs modal closed before all receipt records were captured.");
+                }
+
                 String range = readPostingLogRange();
                 String signature = range + "|" + postingLogRowsSignature();
 
@@ -992,24 +998,27 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 }
 
                 if (range.isBlank() && signature.equals(previousSignature)) {
-                    status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs pagination did not advance.");
-                    break;
+                    throw new IllegalStateException("PostingLogs pagination did not advance.");
                 }
                 previousSignature = signature;
 
-                List<WebElement> rows = driver.findElements(POSTING_LOG_ROWS);
-                boolean pageHadRows = false;
+                List<WebElement> rows = visiblePostingLogRows();
 
                 for (WebElement row : rows) {
                     try {
-                        if (!isDisplayed(row)) continue;
                         List<WebElement> cells = row.findElements(By.xpath("./td"));
                         if (cells.isEmpty()) continue;
 
                         Map<String, Integer> headers = headerIndexesFromPostingLogTable(row);
-                        String receiptStatus = cell(cells, headers, "receipt status", "status", "posting status");
-                        String reason = cell(cells, headers, "failure reason", "reason", "error message", "error");
-                        String failureCode = cell(cells, headers, "failure code", "error code", "code");
+                        String receiptStatus = cell(cells, headers,
+                                "status", "receipt status", "posting status");
+                        String reason = cell(cells, headers,
+                                "lms posting failure reason", "failure reason", "reason",
+                                "error message", "error");
+                        String failureCode = cell(cells, headers,
+                                "failure code", "error code", "code");
+                        String receiptNumber = cell(cells, headers,
+                                "receipt no", "receipt number", "receipt", "receipt id");
 
                         if (receiptStatus.isBlank() && cells.size() > 5) {
                             receiptStatus = clean(cells.get(5).getText());
@@ -1021,26 +1030,25 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                             failureCode = clean(cells.get(7).getText());
                         }
 
-                        if (reason.isBlank()) continue;
-
                         String statusText = receiptStatus.toUpperCase(Locale.ROOT);
-                        boolean failedRecord = statusText.isBlank()
-                                || statusText.contains("FAIL")
+                        boolean failedRecord = statusText.contains("FAIL")
                                 || statusText.contains("PARTIAL")
+                                || !reason.isBlank()
                                 || !failureCode.isBlank();
 
-                        if (!failedRecord) continue;
+                        if (!failedRecord || reason.isBlank()) continue;
 
-                        pageHadRows = true;
-                        reasons.add(failureCode.isBlank()
+                        String displayReason = failureCode.isBlank()
                                 ? reason
-                                : reason + " | Failure Code: " + failureCode);
+                                : "[" + failureCode + "] " + reason;
+
+                        if (!receiptNumber.isBlank()) {
+                            displayReason = displayReason.trim();
+                        }
+
+                        reasons.add(displayReason);
                     } catch (StaleElementReferenceException ignored) {
                     }
-                }
-
-                if (!pageHadRows && rows.isEmpty()) {
-                    status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs returned no receipt records.");
                 }
 
                 WebElement next = visibleElement(POSTING_LOG_NEXT_PAGE);
@@ -1052,17 +1060,15 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 String beforeSignature = postingLogRowsSignature();
                 clickAndWait(next);
 
-                try {
-                    wait.until(d -> {
-                        String after = readPostingLogRange();
-                        String afterSignature = postingLogRowsSignature();
-                        return (!after.isBlank() && !after.equals(before))
-                                || (!afterSignature.isBlank() && !afterSignature.equals(beforeSignature));
-                    });
-                } catch (RuntimeException e) {
-                    status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs pagination stopped advancing at '" + before + "'.");
-                    break;
-                }
+                wait.until(d -> {
+                    if (!isPostingLogsModalOpen()) return false;
+                    String after = readPostingLogRange();
+                    String afterSignature = postingLogRowsSignature();
+                    return (!after.isBlank() && !after.equals(before))
+                            || (!afterSignature.isBlank() && !afterSignature.equals(beforeSignature));
+                });
+
+                waitForPostingLogRows();
             }
 
             for (String reason : reasons) {
@@ -1071,8 +1077,9 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
             if (!reasons.isEmpty()) {
                 status.setJobFailureReason(null);
-            } else if (status.getJobFailureReason() == null || status.getJobFailureReason().isBlank()) {
-                status.setJobFailureReason("Receipt Posting Failure detected, but no receipt-level failure reason was available in PostingLogs.");
+            } else {
+                status.setJobFailureReason(
+                        "Receipt Posting Failure detected, but no receipt-level failure reason was available in PostingLogs.");
             }
         } catch (Exception e) {
             status.setJobFailureReason("Receipt Posting Failure detected, but PostingLogs could not be captured: "
@@ -1080,6 +1087,32 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         } finally {
             closePostingLogsModal();
         }
+    }
+
+    private boolean isPostingLogsModalOpen() {
+        return driver.findElements(POSTING_LOGS_MODAL).stream().anyMatch(this::isDisplayed);
+    }
+
+    private void waitForPostingLogsModal() {
+        wait.until(d -> isPostingLogsModalOpen());
+        waitForPostingLogRows();
+    }
+
+    private void waitForPostingLogRows() {
+        wait.until(d -> !visiblePostingLogRows().isEmpty() || readPostingLogRange().matches(".*\\bof\\s+\\d+.*"));
+    }
+
+    private List<WebElement> visiblePostingLogRows() {
+        List<WebElement> result = new ArrayList<>();
+        for (WebElement row : driver.findElements(POSTING_LOG_ROWS)) {
+            try {
+                if (isDisplayed(row) && !clean(row.getText()).isBlank()) {
+                    result.add(row);
+                }
+            } catch (StaleElementReferenceException ignored) {
+            }
+        }
+        return result;
     }
 
     private Map<String, Integer> headerIndexesFromPostingLogTable(WebElement row) {
