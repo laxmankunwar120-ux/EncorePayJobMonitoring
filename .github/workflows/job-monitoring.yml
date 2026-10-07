@@ -191,6 +191,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -f "test-output/google-chat-sent.marker" ]; then
+            echo "[INFO] Detailed Google Chat report was already delivered by the Java notifier."
+            exit 0
+          fi
+
           if [ -z "$GOOGLE_CHAT_WEBHOOK_URL" ]; then
             echo "::error::GOOGLE_CHAT_WEBHOOK_URL is not configured."
             exit 1
