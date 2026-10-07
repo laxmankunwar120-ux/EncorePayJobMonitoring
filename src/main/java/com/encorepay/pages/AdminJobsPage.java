@@ -85,7 +85,12 @@ public class AdminJobsPage extends BasePage {
     private static final By RECEIPT_SHOW_FILTER = By.xpath("//app-receipts//button[contains(normalize-space(),'Show Filter')]");
     private static final By RECEIPT_HIDE_FILTER = By.xpath("//app-receipts//button[contains(normalize-space(),'Hide Filter')]");
     private static final By RECEIPT_DATE = By.cssSelector("app-receipts input[name='receiptDate']");
-    private static final By LMS_POSTING_STATUS = By.xpath("//select[@name='lmsPostingStatus']" + " | //select[@id='lmsPostingStatus']" + " | //select[contains(@name,'lms') or contains(@name,'status') or contains(@name,'posting')]" + " | //app-receipts//table//select" + " | (//app-receipts//div//select)[1]");
+    private static final By LMS_POSTING_STATUS = By.xpath(
+            "//select[@name='lmsPostingStatus']"
+                + " | //select[@id='lmsPostingStatus']"
+                + " | //*[contains(normalize-space(),'LMS Posting Status')]/following::select[1]"
+                + " | //*[contains(normalize-space(),'LMS Posting')]/following-sibling::*//select"
+                + " | //*[contains(normalize-space(),'LMS Posting')]/following-sibling::select");
     private static final By RECEIPT_SEARCH = By.xpath("//app-receipts//button[normalize-space()='Search']");
     private static final By RECEIPT_ROWS = By.cssSelector("app-receipts app-custom-table table.table-box tbody tr");
     private static final By RECEIPT_PAGINATOR_RANGE = By.cssSelector(
@@ -398,60 +403,106 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     }
 
     private boolean selectPostingStatus(String status) {
-        WebElement selectElement = wait.until(
-            ExpectedConditions.elementToBeClickable(LMS_POSTING_STATUS)
-        );
-        Select select = new Select(selectElement);
+        final int maxAttempts = 4;
 
-        String targetValue = null;
-        String targetText = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                WebElement selectElement = findVisibleLmsPostingStatusSelect();
+                if (selectElement == null) {
+                    if (attempt == maxAttempts) {
+                        return false;
+                    }
+                    sleep(250);
+                    continue;
+                }
 
-        for (WebElement option : select.getOptions()) {
-            String optionText = option.getText().trim();
-            String optionValue = option.getAttribute("value");
-            if (status.equalsIgnoreCase(optionText)
-                    || (optionValue != null && status.equalsIgnoreCase(optionValue))) {
-                targetValue = optionValue;
-                targetText = optionText;
-                break;
+                Select select = new Select(selectElement);
+                String targetValue = null;
+                String targetText = null;
+
+                for (WebElement option : select.getOptions()) {
+                    String optionText = option.getText().trim();
+                    String optionValue = option.getAttribute("value");
+                    if (status.equalsIgnoreCase(optionText)
+                            || (optionValue != null && status.equalsIgnoreCase(optionValue))) {
+                        targetValue = optionValue;
+                        targetText = optionText;
+                        break;
+                    }
+                }
+
+                if (targetText == null) {
+                    return false;
+                }
+
+                try {
+                    selectElement.click();
+                    select.selectByVisibleText(targetText);
+                } catch (Exception ignored) {
+                }
+
+                try {
+                    ((JavascriptExecutor) driver).executeScript(
+                        "var sel=arguments[0], val=arguments[1];" +
+                        "if(val!==null){sel.value=val;}" +
+                        "sel.dispatchEvent(new Event('input',{bubbles:true}));" +
+                        "sel.dispatchEvent(new Event('change',{bubbles:true}));" +
+                        "sel.dispatchEvent(new Event('blur',{bubbles:true}));",
+                        selectElement,
+                        targetValue
+                    );
+                } catch (Exception ignored) {
+                }
+
+                final String expectedText = targetText;
+                final String expectedValue = targetValue;
+
+                boolean selected = wait.until(d -> {
+                    try {
+                        WebElement current = findVisibleLmsPostingStatusSelect();
+                        if (current == null) {
+                            return false;
+                        }
+                        WebElement selectedOption = new Select(current).getFirstSelectedOption();
+                        String currentText = selectedOption.getText().trim();
+                        String currentValue = selectedOption.getAttribute("value");
+                        return expectedText.equalsIgnoreCase(currentText)
+                                || (expectedValue != null && expectedValue.equals(currentValue));
+                    } catch (StaleElementReferenceException | org.openqa.selenium.NoSuchElementException e) {
+                        return false;
+                    }
+                });
+
+                if (selected) {
+                    return true;
+                }
+            } catch (StaleElementReferenceException | org.openqa.selenium.NoSuchElementException ignored) {
+            } catch (Exception e) {
+                if (attempt == maxAttempts) {
+                    throw new IllegalStateException(
+                        "Unable to select LMS Posting Status '" + status + "': " + safeText(e), e);
+                }
+            }
+
+            if (attempt < maxAttempts) {
+                sleep(300);
             }
         }
 
-        if (targetText == null) {
-            return false;
+        return false;
+    }
+
+    private WebElement findVisibleLmsPostingStatusSelect() {
+        List<WebElement> candidates = driver.findElements(LMS_POSTING_STATUS);
+        for (WebElement candidate : candidates) {
+            try {
+                if (candidate.isDisplayed() && candidate.isEnabled()) {
+                    return candidate;
+                }
+            } catch (StaleElementReferenceException ignored) {
+            }
         }
-
-        final String selectedValue = targetValue;
-        final String selectedText = targetText;
-
-        try {
-            ((JavascriptExecutor) driver).executeScript(
-                "var sel=arguments[0], val=arguments[1];"
-                    + "if(val!==null && val!==''){sel.value=val;}"
-                    + "sel.dispatchEvent(new Event('input',{bubbles:true}));"
-                    + "sel.dispatchEvent(new Event('change',{bubbles:true}));"
-                    + "sel.dispatchEvent(new Event('ngModelChange',{bubbles:true}));"
-                    + "sel.dispatchEvent(new Event('blur',{bubbles:true}));",
-                selectElement, selectedValue
-            );
-        } catch (Exception e) {
-            select.selectByVisibleText(selectedText);
-            ((JavascriptExecutor) driver).executeScript(
-                "arguments[0].dispatchEvent(new Event('input',{bubbles:true}));"
-                    + "arguments[0].dispatchEvent(new Event('change',{bubbles:true}));"
-                    + "arguments[0].dispatchEvent(new Event('blur',{bubbles:true}));",
-                selectElement
-            );
-        }
-
-        waitForState("the '" + status + "' posting status option to be selected",
-            d -> {
-                WebElement current = d.findElement(LMS_POSTING_STATUS);
-                return selectedText.equalsIgnoreCase(
-                    new Select(current).getFirstSelectedOption().getText().trim()
-                );
-            });
-        return true;
+        return null;
     }
 
     private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
