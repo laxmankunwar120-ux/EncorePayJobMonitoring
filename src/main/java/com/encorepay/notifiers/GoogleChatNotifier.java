@@ -187,7 +187,7 @@ public final class GoogleChatNotifier {
         message.append("*1. POST RECEIPT JOB*\\n");
         message.append("```\\n");
         message.append(String.format(
-                "%-17s %-12s %7s %7s %-20s%n",
+                "%-17s %-12s %9s %9s  %-20s%n",
                 "Client", "Status", "Failed", "Pending", "Date & Time"));
         message.append("---------------------------------------------------------------\\n");
 
@@ -196,7 +196,7 @@ public final class GoogleChatNotifier {
 
             if (status == null) {
                 message.append(String.format(
-                        "%-17s %-12s %7s %7s %-20s%n",
+                        "%-17s %-12s %9s %9s  %-20s%n",
                         abbreviate(client, 17), "NO STATUS", "-", "-", "-"));
                 continue;
             }
@@ -217,7 +217,7 @@ public final class GoogleChatNotifier {
             }
 
             message.append(String.format(
-                    "%-17s %-12s %7s %7s %-20s%n",
+                    "%-17s %-12s %9s %9s  %-20s%n",
                     abbreviate(client, 17),
                     abbreviate(value, 12),
                     failed,
