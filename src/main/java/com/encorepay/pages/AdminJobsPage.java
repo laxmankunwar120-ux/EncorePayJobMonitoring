@@ -84,6 +84,12 @@ static {
     private static final By RECEIPT_SHOW_FILTER = By.xpath("//app-receipts//button[contains(normalize-space(),'Show Filter')]");
     private static final By RECEIPT_HIDE_FILTER = By.xpath("//app-receipts//button[contains(normalize-space(),'Hide Filter')]");
     private static final By RECEIPT_DATE = By.cssSelector("app-receipts input[name='receiptDate']");
+    private static final By RECEIPT_PAGE_SIZE_SELECT = By.cssSelector(
+            "app-receipts mat-select[name='size'], app-recept select[name='size'], "
+            + "app-receipts .mat-select, app-receipts [aria-label*='page size'], "
+            + "app-receipts [aria-label*='rows per page']");
+    private static final By RECEIPT_PAGE_SIZE_INPUT = By.cssSelector(
+            "app-receipts input[matselectplaceholder], app-receipts input[formcontrolname='size']");
     private static final By LMS_POSTING_STATUS = By.cssSelector("app-receipts select[name='lmsPostingStatus']");
     private static final By RECEIPT_SEARCH = By.xpath("//app-receipts//button[normalize-space()='Search']");
     private static final By RECEIPT_ROWS = By.cssSelector("app-receipts app-custom-table table.table-box tbody tr");
@@ -332,6 +338,9 @@ private ReceiptCapture captureReceiptStatus(String postingStatus, boolean inspec
             return capture;
         }
 
+        // Expand page size to 100 to minimize pagination
+        expandReceiptPageSizeTo100();
+
         resetReceiptPagination();
         searchReceipts(postingStatus, capture);
 
@@ -386,6 +395,26 @@ private ReceiptCapture captureReceiptStatus(String postingStatus, boolean inspec
         return today;
     }
 
+private void expandReceiptPageSizeTo100() {
+        log("[PAGESIZE] Attempting to expand receipt page size to 100");
+        try {
+            String url = driver.getCurrentUrl();
+            if (!url.contains("size=100")) {
+                String newUrl = url.replaceAll("size=\\d+", "size=100");
+                if (newUrl.equals(url)) {
+                    String sep = url.contains("?") ? "&" : "?";
+                    newUrl = url + sep + "size=100";
+                }
+                driver.get(newUrl);
+                waitForReceiptResults();
+                log("[PAGESIZE] URL set to size=100, paginator: '" + readPaginatorRange() + "'");
+            } else {
+                log("[PAGESIZE] URL already has size=100");
+            }
+        } catch (Exception e) {
+            log("[PAGESIZE] URL strategy failed: " + e.getMessage());
+        }
+    }
 private boolean selectPostingStatus(String status) {
         WebElement selectElement = wait.until(
             ExpectedConditions.elementToBeClickable(LMS_POSTING_STATUS)

@@ -95,6 +95,7 @@ public final class GoogleChatNotifier {
         message.append("Clients  : ").append(totalClients).append("\n\n");
 
         message.append("SUMMARY\n");
+        message.append("-------\n");
 
         long successfulJobs = jobs.stream().filter(j -> isSuccessful(j.getStatus())).count();
         long failedJobs = jobs.stream().filter(j -> isFailed(j.getStatus())).count();
@@ -127,7 +128,7 @@ public final class GoogleChatNotifier {
             for (String failure : clientFailures) {
                 if (failure != null && !failure.isBlank()) {
                     String cleanMsg = extractClientFailureMessage(failure);
-                    message.append("  • ").append(cleanMsg).append("\n");
+                    message.append("  ").append(cleanMsg).append("\n");
                 }
             }
             message.append("\n");
@@ -165,25 +166,25 @@ public final class GoogleChatNotifier {
         sb.append(title).append("\n");
 
         if (includeCounts) {
-            sb.append(String.format("%-18s %-12s %8s %8s %s\n",
+            sb.append(String.format("%-20s %-14s %8s %8s %s\n",
                     "Client", "Status", "Failed", "Pending", "End Date/Time"));
-            sb.append("-".repeat(70)).append("\n");
+            sb.append("-".repeat(72)).append("\n");
         } else {
-            sb.append(String.format("%-18s %-12s %s\n",
+            sb.append(String.format("%-20s %-14s %s\n",
                     "Client", "Status", "Start/End Date/Time"));
-            sb.append("-".repeat(60)).append("\n");
+            sb.append("-".repeat(64)).append("\n");
         }
 
         for (JobStatus job : jobList) {
-            String client = truncate(safe(job.getClientName()), 16);
-            String status = truncate(safe(job.getStatus()), 10);
+            String client = truncate(safe(job.getClientName()), 18);
+            String status = truncate(safe(job.getStatus()), 12);
             String dateTime = safe(job.getDateTime());
 
             if (includeCounts) {
-                sb.append(String.format("%-18s %-12s %8d %8d %s\n",
+                sb.append(String.format("%-20s %-14s %8d %8d %s\n",
                         client, status, job.getFailedCount(), job.getPendingCount(), dateTime));
             } else {
-                sb.append(String.format("%-18s %-12s %s\n",
+                sb.append(String.format("%-20s %-14s %s\n",
                         client, status, dateTime));
             }
         }
@@ -198,18 +199,25 @@ public final class GoogleChatNotifier {
 
         StringBuilder sb = new StringBuilder();
         sb.append("FAILED RECEIPT REASONS\n");
+        sb.append("---------------------\n");
 
+        int grandTotal = 0;
         for (Map.Entry<String, Map<String, Integer>> entry : receiptFailuresByClient.entrySet()) {
             String client = entry.getKey();
             Map<String, Integer> reasons = entry.getValue();
             sb.append(client).append("\n");
+            int clientTotal = 0;
             for (Map.Entry<String, Integer> reasonEntry : reasons.entrySet()) {
                 String reason = reasonEntry.getKey();
                 int count = reasonEntry.getValue();
+                clientTotal += count;
+                grandTotal += count;
                 sb.append("  ").append(reason).append(" (").append(count).append(" account").append(count > 1 ? "s" : "").append(")\n");
             }
+            sb.append("  Subtotal: ").append(clientTotal).append(" failed receipt(s)\n");
             sb.append("\n");
         }
+        sb.append("TOTAL FAILED RECEIPTS: ").append(grandTotal).append("\n");
         return sb.toString();
     }
 
