@@ -331,15 +331,16 @@ public class MultiClientAdminJobsTest {
 
         JobStatus post = findRequired(statuses, "Post Receipts Job");
         if (post.getFailedCount() > 0) {
-            boolean reasonsCaptured = !post.getFailureReasons().isEmpty();
-            boolean gapExplained = post.getJobFailureReason() != null
-                    && !post.getJobFailureReason().isBlank();
+            int failedReceipts = post.getFailedCount();
+            int capturedReasonRecords = post.getFailureReasonRecordCount();
 
-            if (!reasonsCaptured && !gapExplained) {
-                post.setJobFailureReason(
-                        "Failed receipts were found, but the receipt-level failure reason could not be captured.");
-                System.out.println("[WARN] " + post.getClientName()
-                        + " has failed receipts but no receipt-level failure reason was captured.");
+            if (capturedReasonRecords == 0) {
+                appendReceiptCaptureIssue(post,
+                        "Failed receipts were found, but no receipt-level failure reason was captured.");
+            } else if (capturedReasonRecords != failedReceipts) {
+                appendReceiptCaptureIssue(post,
+                        "Receipt failure reason capture is incomplete: failed receipts = "
+                                + failedReceipts + ", reason records captured = " + capturedReasonRecords + ".");
             }
         }
 
@@ -350,6 +351,16 @@ public class MultiClientAdminJobsTest {
                     "Job failure Reason must be captured for " + status.getJobName() + ".");
             }
         }
+    }
+
+    private void appendReceiptCaptureIssue(JobStatus status, String issue) {
+        String existing = status.getJobFailureReason();
+        if (existing == null || existing.isBlank()) {
+            status.setJobFailureReason(issue);
+        } else if (!existing.contains(issue)) {
+            status.setJobFailureReason(existing + "; " + issue);
+        }
+        System.out.println("[WARN] " + status.getClientName() + " :: " + issue);
     }
 
     private void validate(JobStatus status) {
