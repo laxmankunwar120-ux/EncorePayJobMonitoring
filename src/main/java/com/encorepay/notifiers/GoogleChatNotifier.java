@@ -187,17 +187,17 @@ public final class GoogleChatNotifier {
         message.append("*1. POST RECEIPT JOB*\\n");
         message.append("```\\n");
         message.append(String.format(
-                "%-17s %-12s %9s %9s  %-20s%n",
+                "%-20s  %-14s  %10s  %10s  %-22s%n",
                 "Client", "Status", "Failed", "Pending", "Date & Time"));
-        message.append("---------------------------------------------------------------\\n");
+        message.append("-----------------------------------------------------------------------\\n");
 
         for (String client : clients) {
             JobStatus status = findJob(jobs, client, POST_RECEIPTS);
 
             if (status == null) {
                 message.append(String.format(
-                        "%-17s %-12s %9s %9s  %-20s%n",
-                        abbreviate(client, 17), "NO STATUS", "-", "-", "-"));
+                        "%-20s  %-14s  %10s  %10s  %-22s%n",
+                        abbreviate(client, 20), "NO STATUS", "-", "-", "-"));
                 continue;
             }
 
@@ -217,12 +217,12 @@ public final class GoogleChatNotifier {
             }
 
             message.append(String.format(
-                    "%-17s %-12s %9s %9s  %-20s%n",
-                    abbreviate(client, 17),
-                    abbreviate(value, 12),
+                    "%-20s  %-14s  %10s  %10s  %-22s%n",
+                    abbreviate(client, 20),
+                    abbreviate(value, 14),
                     failed,
                     pending,
-                    abbreviate(dateTime, 20)));
+                    abbreviate(dateTime, 22)));
         }
 
         message.append("```\\n");
@@ -281,17 +281,17 @@ public final class GoogleChatNotifier {
         message.append("\\n").append(title).append("\\n");
         message.append("```\\n");
         message.append(String.format(
-                "%-17s  %-12s    %-20s%n",
+                "%-20s  %-14s    %-22s%n",
                 "Client", "Status", "Date & Time"));
-        message.append("--------------------------------------------------------\\n");
+        message.append("--------------------------------------------------------------\\n");
 
         for (String client : clients) {
             JobStatus status = findJob(jobs, client, jobName);
 
             if (status == null && optional) {
                 message.append(String.format(
-                        "%-17s  %-12s    %-20s%n",
-                        abbreviate(client, 17),
+                        "%-20s  %-14s    %-22s%n",
+                        abbreviate(client, 20),
                         "N/A",
                         "Not configured"));
                 continue;
@@ -299,8 +299,8 @@ public final class GoogleChatNotifier {
 
             if (status == null) {
                 message.append(String.format(
-                        "%-17s  %-12s    %-20s%n",
-                        abbreviate(client, 17),
+                        "%-20s  %-14s    %-22s%n",
+                        abbreviate(client, 20),
                         "NO STATUS",
                         "-"));
                 continue;
@@ -314,10 +314,10 @@ public final class GoogleChatNotifier {
             }
 
             message.append(String.format(
-                    "%-17s  %-12s    %-20s%n",
-                    abbreviate(client, 17),
-                    abbreviate(value, 12),
-                    abbreviate(dateTime, 20)));
+                    "%-20s  %-14s    %-22s%n",
+                    abbreviate(client, 20),
+                    abbreviate(value, 14),
+                    abbreviate(dateTime, 22)));
         }
 
         message.append("```\\n");
