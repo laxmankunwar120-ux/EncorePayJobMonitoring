@@ -1597,13 +1597,14 @@ private void waitForJobDetailsPage(String jobName) {
         return null;
     }
 
-    private WebElement requireJobRow(String jobName) {
+private WebElement requireJobRow(String jobName) {
         WebElement row = waitForNavigation("the '" + jobName + "' row on the jobs list",
                 d -> findJobRowOptional(jobName));
         if (row == null) {
             row = findJobRowAcrossPages(jobName);
         }
         if (row == null) {
+            System.out.println("[DEBUG] Job row not found for '" + jobName + "'. Visible jobs: " + visibleJobNames());
             throw new IllegalStateException(
                 "Job row not found for '" + jobName + "'. Jobs on page: " + visibleJobNames());
         }

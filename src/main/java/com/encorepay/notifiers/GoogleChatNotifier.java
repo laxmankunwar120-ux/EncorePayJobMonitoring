@@ -293,10 +293,6 @@ public final class GoogleChatNotifier {
             message.append("📄 Direct Report: ").append(reportUrl.trim()).append("\n");
         }
 
-        if (htmlReportPath != null && !htmlReportPath.isBlank()) {
-            message.append("📄 HTML Report (local): ").append(htmlReportPath).append("\n");
-        }
-
         if (server != null && !server.isBlank()
                 && repository != null && !repository.isBlank()
                 && runId != null && !runId.isBlank()) {
