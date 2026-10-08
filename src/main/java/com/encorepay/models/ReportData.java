@@ -160,6 +160,15 @@ public final class ReportData {
                     addOnce(health.details, detail);
                 }
             }
+
+            String validation = safe(job.getValidationMessage());
+            if (!validation.isBlank()) {
+                if (health.state != ClientState.FAILED) {
+                    health.state = ClientState.ATTENTION;
+                }
+                String detail = "Validation: " + truncate(validation, 140);
+                addOnce(health.details, detail);
+            }
         }
 
         if (clientFailures != null) {
@@ -367,6 +376,9 @@ public final class ReportData {
                 || lower.contains("503 service unavailable") || lower.contains("504 gateway timeout")) {
             return "Server is down";
         }
+        if (lower.contains("login_timeout") || lower.contains("login timed out")) return "Login timeout";
+        if (lower.contains("application_not_ready") || lower.contains("application not ready")) return "Application not ready";
+        if (lower.contains("browser_failure") || lower.contains("browser/session failure")) return "Browser/session failure";
         if (lower.contains("403") || lower.contains("forbidden")) return "Application access rejected (403)";
         if (lower.contains("timeout")) return "Connection timeout";
         if (lower.contains("connection")) return "Connection failed";
