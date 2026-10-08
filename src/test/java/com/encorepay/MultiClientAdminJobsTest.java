@@ -51,6 +51,7 @@ public class MultiClientAdminJobsTest {
 
         ConfigReader baseConfig = new ConfigReader();
         List<ClientConfig> clients = resolveClients(baseConfig);
+        baseConfig.validateForMonitoring(clients);
 
         List<JobStatus> allStatuses = new ArrayList<>();
         List<String> clientFailures = new ArrayList<>();
@@ -132,7 +133,7 @@ public class MultiClientAdminJobsTest {
                     .map(this::safeClientName)
                     .toList();
             notifySafely(clientFailures, "Google Chat", () -> GoogleChatNotifier.notify(allStatuses, clientFailures, notificationClientNames, reportPath));
-            notifySafely(clientFailures, "Email", () -> EmailNotifier.notify(allStatuses, reportPath));
+            notifySafely(clientFailures, "Email", () -> EmailNotifier.notify(allStatuses, clientFailures, notificationClientNames, reportPath));
         } else {
             clientFailures.add("NOTIFICATION :: Skipped because no HTML report could be generated.");
         }
@@ -297,14 +298,10 @@ public class MultiClientAdminJobsTest {
         } catch (Throwable e) {
 
             String reason;
-            if (!loginSucceeded && !isExplicitLoginRejection(e)
-                    && (isServerDownLoginFailure(e) || isLoginStageFailure(action) || isApplicationUnavailable(driver))) {
-                // Two complete login attempts without an explicit credential
-                // rejection mean the application could not complete the login
-                // transition. Keep the report business-facing and unambiguous.
-                reason = "Server is down";
-                System.out.println("[CLIENT SERVER DOWN] " + safeClientName(client)
-                        + " :: login did not complete after 2 attempts.");
+            if (!loginSucceeded && !isExplicitLoginRejection(e)) {
+                reason = classifyLoginClientFailure(e, driver);
+                System.out.println("[CLIENT LOGIN FAILURE] " + safeClientName(client)
+                        + " :: " + reason);
             } else {
                 reason = action == null
                     ? safeMessage(e)
@@ -437,7 +434,13 @@ public class MultiClientAdminJobsTest {
         if (status == null) return false;
         String rawStatus = status.getStatus() == null ? "" : status.getStatus().trim();
         String date = status.getDateTime() == null ? "" : status.getDateTime().trim();
-        return !rawStatus.isBlank() && !date.isBlank() && !"N/A".equalsIgnoreCase(date);
+        if (rawStatus.isBlank() || date.isBlank() || "N/A".equalsIgnoreCase(date)) return false;
+
+        if ("Post Receipts Job".equalsIgnoreCase(status.getJobName())
+                && !status.isFailureReasonCountReconciled()) {
+            return false;
+        }
+        return true;
     }
 
     private boolean isTerminalClientFailure(String failureMessage) {
@@ -538,14 +541,13 @@ public class MultiClientAdminJobsTest {
         }
 
         JobStatus post = findRequired(statuses, "Post Receipts Job");
-        if (post.getFailedCount() > 0) {
-
-            boolean reasonsCaptured = !post.getFailureReasons().isEmpty();
-            boolean gapExplained = post.getJobFailureReason() != null
-                    && post.getJobFailureReason().contains("Receipt capture incomplete");
+        if (post.getFailedCount() >= 0) {
             Assert.assertTrue(
-                    reasonsCaptured || gapExplained,
-                    "Failed receipts were found but no reason or capture-gap note was recorded.");
+                    post.isFailureReasonCountReconciled(),
+                    "Receipt failure reason reconciliation failed for " + post.getClientName()
+                    + ": captured " + post.getTotalFailureReasonCount()
+                    + " reason(s) for " + post.getFailedCount() + " FAILED receipt(s)."
+                    + (post.getValidationMessage() == null ? "" : " " + post.getValidationMessage()));
         }
 
         for (JobStatus status : statuses) {
@@ -663,12 +665,23 @@ public class MultiClientAdminJobsTest {
     }
 
     private boolean isServerDownLoginFailure(Throwable error) {
+        return containsErrorMarker(error, "SERVER_DOWN:");
+    }
+
+    private String classifyLoginClientFailure(Throwable error, WebDriver driver) {
+        if (containsErrorMarker(error, "SERVER_DOWN:")) return "Server is down";
+        if (containsErrorMarker(error, "LOGIN_TIMEOUT:")) return "Login timeout";
+        if (containsErrorMarker(error, "BROWSER_FAILURE:")) return "Browser/session failure";
+        if (containsErrorMarker(error, "APPLICATION_NOT_READY:")) return "Application not ready";
+        if (isApplicationUnavailable(driver)) return "Server is down";
+        return "Login failed: " + safeMessage(error);
+    }
+
+    private boolean containsErrorMarker(Throwable error, String marker) {
         Throwable current = error;
         while (current != null) {
             String message = current.getMessage();
-            if (message != null && message.contains("SERVER_DOWN:")) {
-                return true;
-            }
+            if (message != null && message.contains(marker)) return true;
             current = current.getCause();
         }
         return false;
