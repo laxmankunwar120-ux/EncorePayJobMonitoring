@@ -28,6 +28,14 @@ public final class EmailNotifier {
     private EmailNotifier() {}
 
     public static void notify(List<JobStatus> statuses, String htmlReportPath) {
+        notify(statuses, List.of(), List.of(), htmlReportPath);
+    }
+
+    public static void notify(
+            List<JobStatus> statuses,
+            List<String> clientFailures,
+            List<String> configuredClients,
+            String htmlReportPath) {
         ConfigReader config = new ConfigReader();
         if (!config.isEmailNotificationEnabled()) {
             System.out.println("[WARN] Email notification is disabled. Set reportEmailEnabled=true or REPORT_EMAIL_ENABLED=true.");
@@ -78,7 +86,7 @@ public final class EmailNotifier {
                 message.setRecipients(Message.RecipientType.CC, InternetAddress.parse(config.getEmailCc()));
             }
 
-            ReportData data = ReportData.from(statuses, List.of(), List.of());
+            ReportData data = ReportData.from(statuses, clientFailures, configuredClients);
             boolean hasFailures = data.getFailedJobs() > 0 || data.getAttentionJobs() > 0;
             message.setSubject(hasFailures ? "Action Required - EncorePay Job Monitoring Report"
                     : "EncorePay Job Monitoring Report");
