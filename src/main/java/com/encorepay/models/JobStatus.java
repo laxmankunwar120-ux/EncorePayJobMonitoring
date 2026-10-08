@@ -4,20 +4,26 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class JobStatus {
 
+    /** -1 means the count could not be determined; it is never the same as zero. */
+    public static final int UNKNOWN_COUNT = -1;
+    private static final int MAX_REASON_LENGTH = 180;
+
     private String jobName;
     private String clientName;
     private String status;
-    private int failedCount;
-    private int pendingCount;
+    private int failedCount = UNKNOWN_COUNT;
+    private int pendingCount = UNKNOWN_COUNT;
     private String dateTime;
     private final Map<String, Integer> failureReasonCounts = new LinkedHashMap<>();
-    private final Map<String, String> failureReasonDisplay = new LinkedHashMap<>();
     private String jobFailureReason;
     private String validationMessage;
+    /** True when this object is a report placeholder and not data captured from the application. */
+    private boolean synthetic;
 
     public JobStatus() {
     }
@@ -44,67 +50,114 @@ public class JobStatus {
     public String getDateTime() { return dateTime; }
     public void setDateTime(String dateTime) { this.dateTime = dateTime; }
 
-    /**
-     * Returns each unique failure reason as a formatted string:
-     * {@code [CODE] (N accounts)} or the full reason text when no bracketed code exists.
-     */
     public List<String> getFailureReasons() {
         List<String> result = new ArrayList<>();
         for (Map.Entry<String, Integer> entry : failureReasonCounts.entrySet()) {
-            String display = failureReasonDisplay.getOrDefault(entry.getKey(), entry.getKey());
-            result.add(display + " (" + entry.getValue() + " accounts)");
+            result.add(entry.getKey() + " (" + entry.getValue() + " receipts)");
         }
         return Collections.unmodifiableList(result);
     }
 
     public String getJobFailureReason() { return jobFailureReason; }
 
-    public int getFailureReasonRecordCount() {
-        int total = 0;
-        for (Integer count : failureReasonCounts.values()) {
-            total += count == null ? 0 : count;
-        }
-        return total;
-    }
-
-    public void clearFailureReasons() {
-        failureReasonCounts.clear();
-        failureReasonDisplay.clear();
-    }
+    public void clearFailureReasons() { failureReasonCounts.clear(); }
 
     public void setJobFailureReason(String jobFailureReason) {
-        this.jobFailureReason = jobFailureReason == null ? null : jobFailureReason.trim();
+        this.jobFailureReason = jobFailureReason == null ? null : trimReason(jobFailureReason);
     }
 
-    /**
-     * Adds a failure reason, keyed by its bracketed error code when present,
-     * otherwise by the trimmed reason text. Counts occurrences so that many
-     * accounts sharing the same code collapse to a single entry.
-     */
     public void addFailureReason(String reason) {
-        if (reason == null || reason.isBlank()) return;
+        addFailureReason(reason, 1);
+    }
 
-        String clean = reason.replaceAll("\\s+", " ").trim();
-        String code = extractCode(clean);
-        String key = code == null ? clean : code;
-
-        failureReasonDisplay.putIfAbsent(key, clean);
-        failureReasonCounts.merge(key, 1, Integer::sum);
+    public void addFailureReason(String reason, int count) {
+        if (reason == null || reason.isBlank() || count <= 0) return;
+        String clean = trimReason(reason);
+        failureReasonCounts.merge(clean, count, Integer::sum);
     }
 
     public String getValidationMessage() { return validationMessage; }
     public void setValidationMessage(String validationMessage) { this.validationMessage = validationMessage; }
 
-    public String getJobStatus() { return status; }
-    public String getEndDateTime() { return dateTime; }
+    public boolean isSynthetic() { return synthetic; }
+    public void setSynthetic(boolean synthetic) { this.synthetic = synthetic; }
 
-    private static String extractCode(String text) {
-        if (text == null) return null;
-        int start = text.indexOf('[');
-        int end = text.indexOf(']');
-        if (start >= 0 && end > start) {
-            return text.substring(start, end + 1).trim();
+    public Map<String, Integer> getFailureReasonCounts() {
+        return Collections.unmodifiableMap(failureReasonCounts);
+    }
+
+    public int getTotalFailureReasonCount() {
+        int total = 0;
+        for (Integer count : failureReasonCounts.values()) {
+            if (count != null) total += count;
         }
-        return null;
+        return total;
+    }
+
+    /** Returns the raw status exactly as captured from the application. Never converts. */
+    public String getRawStatus() {
+        return status == null ? "" : status.trim();
+    }
+
+    /** Checks if the status indicates success (COMPLETED, SUCCESS, SUCCEEDED) without PARTIAL. */
+    public boolean isSuccessful() {
+        String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
+        return !v.contains("UNSUCCESS")
+                && (v.contains("SUCCESS") || v.contains("COMPLETED") || v.equals("SUCCEEDED"))
+                && !v.contains("PARTIAL");
+    }
+
+    /** Checks if the status indicates failure (contains FAIL) without PARTIAL. */
+    public boolean isFailed() {
+        String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
+        return v.contains("FAIL") && !v.contains("PARTIAL");
+    }
+
+    /** Checks if the status is PARTIALLY_SUCCESSFUL. */
+    public boolean isPartialSuccess() {
+        String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
+        return v.equals("PARTIALLY_SUCCESSFUL");
+    }
+
+    /** Checks if status is not captured / not run (N/A, NOT_CAPTURED, NO_STATUS, blank). */
+    public boolean isNotRun() {
+        String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
+        return v.isBlank() || v.equals("N/A") || v.equals("NOT_CAPTURED") || v.equals("NO_STATUS");
+    }
+
+    /** Checks if the execution needs attention based only on its captured status. */
+    public boolean requiresAttention() {
+        return isFailed() || isPartialSuccess() || isNotRun() || isUnresolvedStatus();
+    }
+
+    /** True when a non-empty status was captured but it is neither a successful nor failed terminal outcome. */
+    public boolean isUnresolvedStatus() {
+        String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
+        return !v.isBlank() && !isSuccessful() && !isFailed() && !isPartialSuccess() && !isNotRun();
+    }
+
+    /** Returns a display-friendly status label preserving the original application status. */
+    public String getDisplayStatus() {
+        String raw = getRawStatus();
+        if (raw.isBlank()) return "N/A";
+        return raw;
+    }
+
+    private static String trimReason(String text) {
+        if (text == null) return "";
+        String clean = text.replaceAll("\\s+", " ").trim();
+        if (clean.length() <= MAX_REASON_LENGTH) return clean;
+        return clean.substring(0, MAX_REASON_LENGTH - 3) + "...";
+    }
+
+    public static String clean(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim();
+    }
+
+    @Override
+    public String toString() {
+        return "JobStatus{jobName='" + jobName + "', clientName='" + clientName
+                + "', status='" + status + "', failedCount=" + failedCount
+                + ", pendingCount=" + pendingCount + ", dateTime='" + dateTime + "'}";
     }
 }

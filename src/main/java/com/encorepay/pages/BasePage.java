@@ -2,9 +2,13 @@ package com.encorepay.pages;
 
 import java.time.Duration;
 import java.util.Locale;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.NoSuchWindowException;
 import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
@@ -14,14 +18,11 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.actiondriver.ActionDriver;
 import com.encorepay.utilities.ConfigReader;
+import com.encorepay.utilities.RetryUtils;
 
 public class BasePage {
 
-/**
-     * The application's own header, which the layout renders only for a logged-in user and only
-     * as <nav> containing its menu-btn triggers. A bare //nav would also match unrelated markup
-     * and could make an unauthenticated page look signed in.
-     */
+
     protected static final By APPLICATION_NAVIGATION = By.xpath(
         "//nav[.//button[contains(@class,'menu-btn')]]"
             + " | //button[normalize-space()='Dashboard']"
@@ -32,6 +33,23 @@ public class BasePage {
         "//app-login//input | //input[@name='username' or @formcontrolname='username']"
             + " | //app-login//button[normalize-space()='Sign in with SSO']"
             + " | //button[normalize-space()='Log In']");
+
+    /**
+     * Authenticated application markers reused by the working Admin/Jobs and
+     * Receipts flows. These are application components, not login feedback, so
+     * they are a stronger signal that authentication has actually completed.
+     */
+    protected static final By AUTHENTICATED_APPLICATION = By.xpath(
+        "//app-ig-layout[.//nav[.//button[contains(@class,'menu-btn')]]]"
+            + " | //app-ig-layout//nav[.//button[contains(@class,'menu-btn')]]"
+            + " | //app-ig-layout//button[contains(@class,'menu-btn') "
+            + "and .//span[normalize-space()='account_circle']]"
+            + " | //app-ig-layout//button[contains(@class,'menu-btn') "
+            + "and normalize-space()='Admin']"
+            + " | //app-ig-layout//button[contains(@class,'menu-btn') "
+            + "and normalize-space()='Dashboard']"
+            + " | //app-ig-layout//button[contains(@class,'menu-btn') "
+            + "and normalize-space()='Accounts']");
 
     protected final WebDriver driver;
     protected final WebDriverWait wait;
@@ -51,7 +69,30 @@ public class BasePage {
         this.bootWait = new WebDriverWait(driver, Duration.ofSeconds(config.getBootTimeout()));
         this.config = config;
         this.action = new ActionDriver(driver, config);
+        this.correlationId = new AtomicReference<>(UUID.randomUUID().toString().substring(0, 8));
         PageFactory.initElements(driver, this);
+    }
+
+    private final AtomicReference<String> correlationId;
+
+    public String getCorrelationId() {
+        return correlationId.get();
+    }
+
+    public void setCorrelationId(String correlationId) {
+        this.correlationId.set(correlationId);
+    }
+
+    protected void log(String message) {
+        System.out.println("[" + correlationId + "] " + message);
+    }
+
+    protected void logWarn(String message) {
+        System.out.println("[WARN][" + correlationId + "] " + message);
+    }
+
+    protected void logError(String message) {
+        System.err.println("[ERROR][" + correlationId + "] " + message);
     }
 
     protected void awaitAppBootstrap() {
@@ -74,6 +115,17 @@ public class BasePage {
             String source = d.getPageSource();
             String normalizedTitle = title == null ? "" : title.toLowerCase(Locale.ROOT);
             String normalizedSource = source == null ? "" : source.toLowerCase(Locale.ROOT);
+
+            if (normalizedTitle.contains("404 not found") || normalizedSource.contains("404 not found")
+                    || (normalizedSource.contains("nginx/") && normalizedSource.contains("404"))) {
+                return "Server is down (HTTP 404 - application endpoint is unavailable). URL: " + d.getCurrentUrl();
+            }
+
+            if (normalizedTitle.contains("502 bad gateway") || normalizedSource.contains("502 bad gateway")
+                    || normalizedTitle.contains("503 service unavailable") || normalizedSource.contains("503 service unavailable")
+                    || normalizedTitle.contains("504 gateway timeout") || normalizedSource.contains("504 gateway timeout")) {
+                return "Server is down (application service is unavailable). URL: " + d.getCurrentUrl();
+            }
 
             if (normalizedTitle.contains("403") || normalizedTitle.contains("forbidden")
                     || normalizedSource.contains("403 forbidden")) {
@@ -98,7 +150,23 @@ public class BasePage {
     }
 
     protected boolean isAuthenticatedApplicationVisible() {
-        return anyVisible(APPLICATION_NAVIGATION);
+        // The application components are authoritative. Some deployments can
+        // keep the signin hash briefly while Angular finishes the authenticated
+        // transition, so do not reject a real authenticated shell just because
+        // the URL has not changed yet.
+        if (anyVisible(AUTHENTICATED_APPLICATION)) {
+            return true;
+        }
+
+        try {
+            String url = driver.getCurrentUrl();
+            String normalizedUrl = url == null ? "" : url.toLowerCase(Locale.ROOT);
+            return !normalizedUrl.contains("#/signin")
+                    && !normalizedUrl.contains("/signin")
+                    && anyVisible(APPLICATION_NAVIGATION);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     protected boolean anyVisible(By locator) {
@@ -136,6 +204,87 @@ public class BasePage {
             return pageTitle.contains("encore") || (!expectedHost.isBlank() && current.startsWith(expectedHost.split("#", 2)[0]));
         } catch (Exception ignored) {
             return false;
+        }
+    }
+
+    protected void validateSessionAndWindow() {
+        validateSessionAndWindow(3);
+    }
+
+    protected void validateSessionAndWindow(int maxRecoveryAttempts) {
+        for (int attempt = 1; attempt <= maxRecoveryAttempts; attempt++) {
+            try {
+                String url = driver.getCurrentUrl();
+                String title = driver.getTitle();
+                String windowHandle = driver.getWindowHandle();
+                log("Session valid: url=" + url + ", title=" + title + ", handle=" + windowHandle);
+                return;
+            } catch (NoSuchWindowException e) {
+                logWarn("Window lost on attempt " + attempt + "/" + maxRecoveryAttempts + ": " + e.getMessage());
+                if (attempt < maxRecoveryAttempts) {
+                    recoverWindow();
+                } else {
+                    throw new IllegalStateException("Cannot recover browser window after " + maxRecoveryAttempts + " attempts", e);
+                }
+            } catch (Exception e) {
+                if (isSessionLost(e)) {
+                    logWarn("Session lost on attempt " + attempt + "/" + maxRecoveryAttempts + ": " + e.getMessage());
+                    if (attempt < maxRecoveryAttempts) {
+                        recoverSession();
+                    } else {
+                        throw new IllegalStateException("Cannot recover browser session after " + maxRecoveryAttempts + " attempts", e);
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
+    }
+
+    private boolean isSessionLost(Throwable e) {
+        if (e == null) return false;
+        String message = e.getMessage();
+        if (message == null) return false;
+        String lower = message.toLowerCase();
+        return lower.contains("session")
+                || lower.contains("no such window")
+                || lower.contains("session deleted")
+                || lower.contains("session not found")
+                || lower.contains("invalid session")
+                || lower.contains("disconnected");
+    }
+
+    private void recoverWindow() {
+        try {
+            String originalHandle = null;
+            try {
+                originalHandle = driver.getWindowHandle();
+            } catch (Exception ignored) {}
+            
+            for (String handle : driver.getWindowHandles()) {
+                if (!handle.equals(originalHandle)) {
+                    driver.switchTo().window(handle);
+                    log("Switched to window: " + handle);
+                    return;
+                }
+            }
+            
+            if (originalHandle != null) {
+                driver.switchTo().window(originalHandle);
+                log("Reverted to original window: " + originalHandle);
+            }
+        } catch (Exception e) {
+            logWarn("Window recovery failed: " + e.getMessage());
+        }
+    }
+
+    private void recoverSession() {
+        try {
+            driver.get(config.getURL());
+            awaitAppBootstrap();
+            log("Session recovered by navigating to base URL");
+        } catch (Exception e) {
+            logWarn("Session recovery failed: " + e.getMessage());
         }
     }
 
@@ -188,6 +337,88 @@ public class BasePage {
         action.scrollToElement(element);
     }
 
+    /**
+     * Scrolls the browser window smoothly to the very bottom and waits for the
+     * UI to settle. Use this as the global page scroller so every job flow
+     * (Post Receipts, Download Collection Items, Upcoming Demand) scrolls
+     * consistently far enough to expose job status columns.
+     */
+    protected void scrollPageToBottom() {
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                    "window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });");
+            Thread.sleep(400);
+        } catch (Exception ignored) {
+            try {
+                ((JavascriptExecutor) driver).executeScript(
+                        "window.scrollTo(0, document.documentElement.scrollHeight);");
+            } catch (Exception ignoredAgain) {
+            }
+        }
+        waitForUiStable();
+    }
+
+    /**
+     * Scrolls the given scrollable container (for example the jobs table
+     * wrapper) all the way to its bottom and waits for stability. This is the
+     * container-level equivalent of {@link #scrollPageToBottom()} and is used
+     * when the application renders jobs inside an inner scrollable region.
+     */
+    protected void scrollContainerToBottom(WebElement container) {
+        if (container == null) {
+            scrollPageToBottom();
+            return;
+        }
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                    "arguments[0].scrollTo({ top: arguments[0].scrollHeight, behavior: 'smooth' });",
+                    container);
+            Thread.sleep(300);
+        } catch (Exception ignored) {
+            try {
+                ((JavascriptExecutor) driver).executeScript(
+                        "arguments[0].scrollTop = arguments[0].scrollHeight;", container);
+            } catch (Exception ignoredAgain) {
+            }
+        }
+        waitForUiStable();
+    }
+
+    /**
+     * Finds the nearest scrollable ancestor of the given element and scrolls it
+     * to the bottom. Falls back to the global page scroller when no scrollable
+     * ancestor is found.
+     */
+    protected void scrollToBottomAround(WebElement element) {
+        if (element == null) {
+            scrollPageToBottom();
+            return;
+        }
+        try {
+            Object scroller = ((JavascriptExecutor) driver).executeScript(
+                    "var node = arguments[0];"
+                            + "while (node && node !== document.body) {"
+                            + "  var style = window.getComputedStyle(node);"
+                            + "  var overflowY = style ? style.overflowY : '';"
+                            + "  var overflow = style ? style.overflow : '';"
+                            + "  var scrollable = (overflowY === 'auto' || overflowY === 'scroll'"
+                            + "    || overflow === 'auto' || overflow === 'scroll');"
+                            + "  if (scrollable && node.scrollHeight > node.clientHeight + 10) {"
+                            + "    return node;"
+                            + "  }"
+                            + "  node = node.parentElement;"
+                            + "}"
+                            + "return null;",
+                    element);
+            if (scroller instanceof WebElement) {
+                scrollContainerToBottom((WebElement) scroller);
+                return;
+            }
+        } catch (Exception ignored) {
+        }
+        scrollPageToBottom();
+    }
+
     protected void waitForPageLoad() {
         action.waitForUiStable();
     }
@@ -200,8 +431,41 @@ public class BasePage {
         action.waitForTransientFeedbackToClear();
     }
 
-    protected WebElement findVisibleElement(By locator) {
+    protected <T> T retry(Function<WebDriver, T> operation) {
+        return RetryUtils.retry(() -> operation.apply(driver));
+    }
+
+    protected <T> T retry(Function<WebDriver, T> operation, int maxAttempts) {
+        return RetryUtils.retry(() -> operation.apply(driver), maxAttempts);
+    }
+
+    protected void retry(Runnable operation) {
+        RetryUtils.run(operation);
+    }
+
+    protected void retry(Runnable operation, int maxAttempts) {
+        RetryUtils.run(operation, maxAttempts);
+    }
+
+    protected WebElement findVisibleWithRetry(By locator) {
         return action.findVisible(locator);
+    }
+
+    protected WebElement findVisibleWithRetry(By locator, int maxAttempts) {
+        return RetryUtils.retryFindElement(driver, d -> action.findVisible(locator), maxAttempts);
+    }
+
+    protected boolean clickWithRetry(WebElement element) {
+        try {
+            RetryUtils.retryClick(element);
+            return true;
+        } catch (RetryUtils.RetryExhaustedException e) {
+            return false;
+        }
+    }
+
+    protected WebElement visibleElement(By locator) {
+        return wait.until(ExpectedConditions.visibilityOfElementLocated(locator));
     }
 
     protected void clearAndType(WebElement element, String value) {
@@ -216,3 +480,5 @@ public class BasePage {
         }
     }
 }
+
+

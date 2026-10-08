@@ -1,6 +1,7 @@
 package com.encorepay.notifiers;
 
 import com.encorepay.models.JobStatus;
+import com.encorepay.models.ReportData;
 import com.encorepay.utilities.ConfigReader;
 
 import jakarta.activation.DataHandler;
@@ -21,9 +22,6 @@ import java.util.Locale;
 import java.util.Properties;
 
 public final class EmailNotifier {
-    private static final String POST_RECEIPTS = "Post Receipts Job";
-    private static final String COLLECTIONS = "Encore Download Collection Items Job";
-    private static final String UPCOMING = "Encore Up Coming Demands Job";
     private static final DateTimeFormatter REPORT_TIME =
             DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.ENGLISH);
 
@@ -80,12 +78,13 @@ public final class EmailNotifier {
                 message.setRecipients(Message.RecipientType.CC, InternetAddress.parse(config.getEmailCc()));
             }
 
-            int failed = (int) statuses.stream().filter(EmailNotifier::isFailed).count();
-            String subjectPrefix = failed > 0 ? "⚠️" : "✅";
-           message.setSubject(subjectPrefix + " EncorePay Job Monitoring Report");
+            ReportData data = ReportData.from(statuses, List.of(), List.of());
+            boolean hasFailures = data.getFailedJobs() > 0 || data.getAttentionJobs() > 0;
+            message.setSubject(hasFailures ? "Action Required - EncorePay Job Monitoring Report"
+                    : "EncorePay Job Monitoring Report");
 
-            String plainText = buildPlainText(statuses);
-            String html = buildHtml(statuses);
+            String plainText = buildPlainText(data);
+            String html = buildHtml(data);
 
             MimeBodyPart plainPart = new MimeBodyPart();
             plainPart.setText(plainText, StandardCharsets.UTF_8.name());
@@ -112,8 +111,7 @@ public final class EmailNotifier {
             Transport.send(message);
             System.out.println("[INFO] Email notification sent to " + to + ".");
         } catch (Exception e) {
-            // The report never reached the recipients, so this run did not do its job. It is
-            // raised for the run to record rather than logged and forgotten.
+
             System.out.println("[FAIL] Email notification failed (" + e.getClass().getSimpleName() + "): " + e.getMessage());
             throw e instanceof RuntimeException runtime
                 ? runtime
@@ -121,46 +119,44 @@ public final class EmailNotifier {
         }
     }
 
-    private static String buildPlainText(List<JobStatus> statuses) {
-        int clients = (int) statuses.stream().map(s -> safe(s.getClientName())).distinct().count();
-        long successful = statuses.stream().filter(EmailNotifier::isSuccessful).count();
-        long failed = statuses.stream().filter(EmailNotifier::isFailed).count();
-        long attention = statuses.stream().filter(s -> !isSuccessful(s) && !isFailed(s)).count();
-
+    private static String buildPlainText(ReportData data) {
+        LocalDateTime now = LocalDateTime.now(new ConfigReader().getBusinessZone());
         StringBuilder body = new StringBuilder();
         body.append("ENCOREPAY JOB MONITORING REPORT\n")
-                .append("Generated: ").append(LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME)).append("\n")
-                .append("Clients: ").append(clients)
-                .append(" | Successful: ").append(successful)
-                .append(" | Failed: ").append(failed)
-                .append(" | Attention: ").append(attention)
+                .append("Generated: ").append(now.format(REPORT_TIME)).append("\n")
+                .append("Clients: ").append(data.getTotalClients())
+                .append(" | Monitored: ").append(data.getMonitoredClients())
+                .append(" | Successful: ").append(data.getSuccessfulJobs())
+                .append(" | Failed: ").append(data.getFailedJobs())
+                .append(" | Attention: ").append(data.getAttentionJobs())
+                .append(" | Failed Receipts: ").append(Math.max(0, data.getTotalFailedReceipts()))
+                .append(" | Pending Receipts: ").append(Math.max(0, data.getTotalPendingReceipts()))
                 .append("\n\n");
 
-        appendPlainSection(body, "POST RECEIPTS JOB", statuses, POST_RECEIPTS, true);
-        appendPlainSection(body, "DOWNLOAD COLLECTION ITEMS JOB", statuses, COLLECTIONS, false);
-        appendPlainSection(body, "UPCOMING DEMAND JOB", statuses, UPCOMING, false);
+        appendPlainSection(body, "POST RECEIPTS JOB", data.getPostReceipts(), true);
+        appendPlainSection(body, "DOWNLOAD COLLECTION ITEMS JOB", data.getCollectionJobs(), false);
+        appendPlainSection(body, "UPCOMING DEMAND JOB", data.getUpcomingJobs(), false);
 
-        body.append(failed == 0 && attention == 0
+        appendClientFailures(body, data);
+
+        body.append(data.getFailedJobs() == 0 && data.getAttentionJobs() == 0
                 ? "Overall Status: HEALTHY\n"
                 : "Action Required: Please investigate failed/attention entries.\n")
                 .append("\nEncorePay Job Monitor");
         return body.toString();
     }
 
-    private static void appendPlainSection(StringBuilder body, String heading, List<JobStatus> statuses, String jobName, boolean counts) {
-        List<JobStatus> rows = statuses.stream()
-                .filter(s -> jobName.equalsIgnoreCase(s.getJobName()))
-                .toList();
-        if (rows.isEmpty()) return;
+    private static void appendPlainSection(StringBuilder body, String heading, List<JobStatus> statuses, boolean counts) {
+        if (statuses.isEmpty()) return;
 
         body.append(heading).append("\n");
-        for (JobStatus s : rows) {
-            body.append(statusIcon(s)).append(" ")
+        for (JobStatus s : statuses) {
+            body.append(statusLabel(s)).append(" ")
                     .append(safe(s.getClientName()))
-                    .append(" - ").append(displayStatus(s.getStatus()));
+                    .append(" - ").append(s.getDisplayStatus());
             if (counts) {
-                body.append(" | Failed: ").append(s.getFailedCount())
-                        .append(" | Pending: ").append(s.getPendingCount());
+                body.append(" | Failed: ").append(displayCount(s.getFailedCount()))
+                        .append(" | Pending: ").append(displayCount(s.getPendingCount()));
             }
             body.append(" | Last Run: ").append(safe(s.getDateTime())).append("\n");
             String reason = conciseReason(s);
@@ -169,12 +165,25 @@ public final class EmailNotifier {
         body.append("\n");
     }
 
-    private static String buildHtml(List<JobStatus> statuses) {
-        long successful = statuses.stream().filter(EmailNotifier::isSuccessful).count();
-        long failed = statuses.stream().filter(EmailNotifier::isFailed).count();
-        long attention = statuses.stream().filter(s -> !isSuccessful(s) && !isFailed(s)).count();
-        String overallClass = failed == 0 && attention == 0 ? "ok" : "alert";
-        String overallText = failed == 0 && attention == 0 ? "HEALTHY" : "ACTION REQUIRED";
+    private static void appendClientFailures(StringBuilder body, ReportData data) {
+        List<ReportData.ClientException> exceptions = data.getClientExceptions();
+        if (exceptions.isEmpty()) return;
+
+        body.append("CLIENT EXCEPTIONS\n");
+        for (ReportData.ClientException ex : exceptions) {
+            if (ex.state == ReportData.ClientState.NOT_RUN) continue;
+            body.append(ex.client).append(" - ").append(ex.state).append("\n");
+            for (String detail : ex.details) {
+                body.append("   ").append(detail).append("\n");
+            }
+        }
+        body.append("\n");
+    }
+
+    private static String buildHtml(ReportData data) {
+        LocalDateTime now = LocalDateTime.now(new ConfigReader().getBusinessZone());
+        String timestamp = now.format(REPORT_TIME);
+        boolean hasFailures = data.getFailedJobs() > 0 || data.getAttentionJobs() > 0;
 
         StringBuilder html = new StringBuilder(12000);
         html.append("<!doctype html><html><head><meta charset='UTF-8'>")
@@ -193,44 +202,60 @@ public final class EmailNotifier {
                 .append(".ok,.alert{margin:4px 24px 24px;padding:14px;border-radius:9px;font-weight:700}.ok{background:#ecfdf5;color:#166534}.alert{background:#fff7ed;color:#9a3412}")
                 .append(".footer{padding:18px 24px;color:#64748b;font-size:12px;border-top:1px solid #e5e7eb}")
                 .append("</style></head><body><div class='card'>")
-                .append("<div class='header'><h1>📊 EncorePay Job Monitoring Report</h1><div class='meta'>Generated: ")
-                .append(escape(LocalDateTime.now(new ConfigReader().getBusinessZone()).format(REPORT_TIME))).append("</div></div>")
+                .append("<div class='header'><h1>EncorePay Job Monitoring Report</h1><div class='meta'>Generated: ")
+                .append(escape(timestamp)).append("</div></div>")
                 .append("<div class='summary'>")
-                .append(metric("Successful", successful))
-                .append(metric("Failed", failed))
-                .append(metric("Attention", attention))
+                .append(metric("Successful", data.getSuccessfulJobs()))
+                .append(metric("Failed", data.getFailedJobs()))
+                .append(metric("Attention", data.getAttentionJobs()))
                 .append("</div>");
 
-        appendHtmlSection(html, "🧾 Post Receipts Job", statuses, POST_RECEIPTS, true);
-        appendHtmlSection(html, "📥 Download Collection Items Job", statuses, COLLECTIONS, false);
-        appendHtmlSection(html, "📈 Upcoming Demand Job", statuses, UPCOMING, false);
+        appendHtmlSection(html, "Post Receipts Job", data.getPostReceipts(), true);
+        appendHtmlSection(html, "Download Collection Items Job", data.getCollectionJobs(), false);
+        appendHtmlSection(html, "Upcoming Demand Job", data.getUpcomingJobs(), false);
 
-        html.append("<div class='").append(overallClass).append("'>")
-                .append(failed == 0 && attention == 0 ? "🟢 Overall Status: " : "🚨 ")
-                .append(overallText)
+        appendHtmlClientFailures(html, data);
+
+        html.append("<div class='").append(hasFailures ? "alert" : "ok").append("'>")
+                .append(hasFailures ? "Action Required: " : "Overall Status: ")
+                .append(hasFailures ? "Please investigate failed/attention entries." : "HEALTHY")
                 .append("</div><div class='footer'>EncorePay Job Monitor</div></div></body></html>");
         return html.toString();
     }
 
-    private static void appendHtmlSection(StringBuilder html, String title, List<JobStatus> statuses, String jobName, boolean counts) {
-        List<JobStatus> rows = statuses.stream().filter(s -> jobName.equalsIgnoreCase(s.getJobName())).toList();
-        if (rows.isEmpty()) return;
+    private static void appendHtmlSection(StringBuilder html, String title, List<JobStatus> statuses, boolean counts) {
+        if (statuses.isEmpty()) return;
 
         html.append("<div class='section'><h2>").append(escape(title)).append("</h2><table><thead><tr>")
                 .append("<th>Client</th><th>Status</th>");
         if (counts) html.append("<th>Failed</th><th>Pending</th>");
         html.append("<th>Last Run</th><th>Details</th></tr></thead><tbody>");
 
-        for (JobStatus s : rows) {
-            String status = displayStatus(s.getStatus());
-            String css = isFailed(s) ? "failed" : isSuccessful(s) ? "success" : "attention";
+        for (JobStatus s : statuses) {
+            String status = s.getDisplayStatus();
+            String css = s.isFailed() ? "failed" : s.isSuccessful() ? "success" : "attention";
             html.append("<tr><td><b class='client'>").append(escape(safe(s.getClientName()))).append("</b></td>")
                     .append("<td class='").append(css).append("'>").append(escape(status)).append("</td>");
             if (counts) {
-                html.append("<td>").append(s.getFailedCount()).append("</td><td>").append(s.getPendingCount()).append("</td>");
+                html.append("<td>").append(displayCount(s.getFailedCount())).append("</td><td>").append(displayCount(s.getPendingCount())).append("</td>");
             }
             html.append("<td>").append(escape(safe(s.getDateTime()))).append("</td>")
                     .append("<td class='reason'>").append(escape(conciseReason(s))).append("</td></tr>");
+        }
+        html.append("</tbody></table></div>");
+    }
+
+    private static void appendHtmlClientFailures(StringBuilder html, ReportData data) {
+        List<ReportData.ClientException> exceptions = data.getClientExceptions();
+        if (exceptions.isEmpty()) return;
+
+        html.append("<div class='section'><h2>Client Exceptions</h2><table><thead><tr>")
+                .append("<th>Client</th><th>Status</th><th>Details</th></tr></thead><tbody>");
+        for (ReportData.ClientException ex : exceptions) {
+            if (ex.state == ReportData.ClientState.NOT_RUN) continue;
+            html.append("<tr><td><b class='client'>").append(escape(ex.client)).append("</b></td>")
+                    .append("<td>").append(escape(ex.state.toString())).append("</td>")
+                    .append("<td class='reason'>").append(escape(String.join("; ", ex.details))).append("</td></tr>");
         }
         html.append("</tbody></table></div>");
     }
@@ -248,37 +273,24 @@ public final class EmailNotifier {
         if (reason.isBlank()) return "";
 
         String normalized = reason.replaceAll("\\s+", " ").trim();
-        if (normalized.matches("(?s).*\\b\\d{3}\\s+[A-Za-z][A-Za-z ]{2,40}.*")) {
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("(?i)(\\d{3})\\s+([A-Za-z][A-Za-z ]{2,40})")
-                    .matcher(normalized);
-            if (m.find()) return (m.group(1) + " " + m.group(2)).trim();
-        }
         if (normalized.length() > 220) normalized = normalized.substring(0, 217).trim() + "...";
         return normalized;
     }
 
-    private static boolean isSuccessful(JobStatus s) {
-        String v = safe(s == null ? null : s.getStatus()).toUpperCase(Locale.ROOT);
-        return v.contains("SUCCESS") || v.contains("COMPLETED") || v.equals("SUCCEEDED");
+    private static String statusLabel(JobStatus s) {
+        if (s == null) return "[ATTENTION]";
+        if (s.isFailed()) return "[FAILED]";
+        if (s.isSuccessful()) return "[OK]";
+        return "[ATTENTION]";
     }
 
-    private static boolean isFailed(JobStatus s) {
-        return safe(s == null ? null : s.getStatus()).toUpperCase(Locale.ROOT).contains("FAIL");
+    private static String displayCount(int count) {
+        return count < 0 ? "N/A" : String.valueOf(count);
     }
 
-    private static String statusIcon(JobStatus s) {
-        return isSuccessful(s) ? "[OK]" : isFailed(s) ? "[FAILED]" : "[ATTENTION]";
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
-
-    private static String displayStatus(String status) {
-        String v = safe(status).toUpperCase(Locale.ROOT);
-        if (v.contains("SUCCESS") || v.contains("COMPLETED") || v.equals("SUCCEEDED")) return "SUCCESSFUL";
-        if (v.contains("FAIL")) return "FAILED";
-        return v.isBlank() ? "NOT CAPTURED" : v.toUpperCase(Locale.ROOT);
-    }
-
-    private static String safe(String value) { return value == null ? "" : value.trim(); }
 
     private static String escape(String value) {
         return safe(value).replace("&", "&amp;").replace("<", "&lt;")

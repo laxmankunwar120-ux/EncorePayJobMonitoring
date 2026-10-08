@@ -4,9 +4,12 @@ import java.time.Duration;
 import java.util.List;
 import java.util.function.Supplier;
 
+import org.openqa.selenium.Alert;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.Keys;
+import org.openqa.selenium.NoAlertPresentException;
+import org.openqa.selenium.UnhandledAlertException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.interactions.Actions;
@@ -14,6 +17,7 @@ import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.utilities.ConfigReader;
+import com.encorepay.utilities.RetryUtils;
 import com.encorepay.utilities.ScreenshotUtil;
 
 public class ActionDriver {
@@ -46,6 +50,43 @@ public class ActionDriver {
         this.shortWait = new WebDriverWait(driver, Duration.ofSeconds(3));
     }
 
+    public void dismissUnexpectedAlerts() {
+        try {
+            Alert alert = driver.switchTo().alert();
+            String text = alert.getText();
+            logWarn("Dismissing unexpected alert: " + text);
+            alert.dismiss();
+        } catch (NoAlertPresentException ignored) {
+        } catch (UnhandledAlertException e) {
+            try {
+                Alert alert = driver.switchTo().alert();
+                alert.dismiss();
+            } catch (Exception ignored) {}
+        } catch (Exception e) {
+            logWarn("Failed to dismiss alert: " + e.getMessage());
+        }
+    }
+
+    public <T> T retry(Supplier<T> operation) {
+        return RetryUtils.retry(operation);
+    }
+
+    public void runWithRetry(Runnable operation) {
+        RetryUtils.run(operation);
+    }
+
+    public <T> T retryWithConfig(Supplier<T> operation, int maxAttempts) {
+        return RetryUtils.retry(operation, maxAttempts);
+    }
+
+    public void runWithRetry(Runnable operation, int maxAttempts) {
+        RetryUtils.run(operation, maxAttempts);
+    }
+
+    private void logWarn(String message) {
+        System.out.println("[WARN][ActionDriver] " + message);
+    }
+
     public void waitForUiStable() {
         try {
             new WebDriverWait(driver, Duration.ofSeconds(config.getExplicitWait())).until(d ->
@@ -53,6 +94,7 @@ public class ActionDriver {
             );
         } catch (Exception ignored) {}
 
+        dismissUnexpectedAlerts();
         waitForOverlayToClear();
         waitForTransientFeedbackToClear();
     }
@@ -66,12 +108,14 @@ public class ActionDriver {
 
     public WebElement findVisible(By locator) {
         waitForOverlayToClear();
-        return wait.until(ExpectedConditions.visibilityOfElementLocated(locator));
+        dismissUnexpectedAlerts();
+        return retry(() -> wait.until(ExpectedConditions.visibilityOfElementLocated(locator)));
     }
 
     public WebElement findClickable(By locator) {
         waitForOverlayToClear();
-        return wait.until(ExpectedConditions.elementToBeClickable(locator));
+        dismissUnexpectedAlerts();
+        return retry(() -> wait.until(ExpectedConditions.elementToBeClickable(locator)));
     }
 
     public void type(By locator, String value) {
@@ -96,14 +140,18 @@ public class ActionDriver {
 
     public void click(By locator) {
         waitForUiStable();
+        dismissUnexpectedAlerts();
         WebElement element = findClickable(locator);
-        safeClick(element);
+        runWithRetry(() -> safeClick(element));
     }
 
     public void click(WebElement element) {
         waitForUiStable();
-        wait.until(ExpectedConditions.elementToBeClickable(element));
-        safeClick(element);
+        dismissUnexpectedAlerts();
+        runWithRetry(() -> {
+            wait.until(ExpectedConditions.elementToBeClickable(element));
+            safeClick(element);
+        });
     }
 
     public boolean isVisible(By locator) {
@@ -252,7 +300,9 @@ public class ActionDriver {
     public void scrollToElement(WebElement element) {
         try {
             ((JavascriptExecutor) driver)
-                .executeScript("arguments[0].scrollIntoView({block:'center'});", element);
+                .executeScript("arguments[0].scrollIntoView({block:'center', behavior:'smooth'});", element);
+
+            Thread.sleep(300);
         } catch (Exception ignored) {
         }
     }
@@ -285,7 +335,7 @@ public class ActionDriver {
         return visible;
     }
 
-    /** Returns the screenshot path so callers can put it in a failure message, or "" on failure. */
+    
     public String captureStep(String label) {
         try {
             waitForUiStable();
@@ -296,10 +346,7 @@ public class ActionDriver {
         }
     }
 
-    /**
-     * Records the business step the run is on, so a later failure can say where it stopped
-     * instead of only reporting that a wait expired.
-     */
+    
     public void markStep(String step) {
         if (step == null || step.isBlank()) return;
         currentStep = step.trim();
@@ -310,10 +357,7 @@ public class ActionDriver {
         return currentStep;
     }
 
-    /**
-     * Builds the diagnostic line attached to a genuine client failure: step, URL, title, page
-     * state and screenshot path. Never throws, so it cannot mask the failure it is describing.
-     */
+    
     public String captureFailure(String reason) {
         StringBuilder detail = new StringBuilder(reason == null ? "Unknown failure." : reason);
 
@@ -422,7 +466,7 @@ public class ActionDriver {
             }
             
             try {
-                // Ensure no standard overlay is actively blocking globally
+
                 new WebDriverWait(driver, Duration.ofSeconds(3))
                     .until(ExpectedConditions.invisibilityOfElementLocated(By.cssSelector(".cdk-overlay-backdrop:not(.cdk-overlay-transparent-backdrop), .ngx-spinner, .loader")));
             } catch (Exception ignored) {}
@@ -480,3 +524,5 @@ public class ActionDriver {
             .trim();
     }
 }
+
+

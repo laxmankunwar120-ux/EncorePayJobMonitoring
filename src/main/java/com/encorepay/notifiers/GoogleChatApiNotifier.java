@@ -12,7 +12,6 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,12 +24,7 @@ final class GoogleChatApiNotifier {
     private static final String CHAT_API = "https://chat.googleapis.com";
     private static final Pattern CHAT_SPACE =
             Pattern.compile("/v1/spaces/([^/]+)/messages(?:$|\\?)");
-    private static final int NETWORK_ATTEMPTS = 4;
-    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(90);
-    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-            .connectTimeout(CONNECT_TIMEOUT)
-            .build();
+    private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
     private GoogleChatApiNotifier() {
     }
@@ -83,11 +77,16 @@ final class GoogleChatApiNotifier {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(webhook))
                 .header("Content-Type", "application/json; charset=UTF-8")
-                .timeout(REQUEST_TIMEOUT)
                 .POST(HttpRequest.BodyPublishers.ofString(payload.toString(), StandardCharsets.UTF_8))
                 .build();
 
-        sendWithRetry(request, "Google Chat webhook");
+        HttpResponse<String> response = HTTP_CLIENT.send(request,
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException("Google Chat webhook returned HTTP "
+                    + response.statusCode() + ": " + abbreviate(response.body(), 500));
+        }
     }
 
     private static String refreshAccessToken(ConfigReader config) throws Exception {
@@ -99,11 +98,16 @@ final class GoogleChatApiNotifier {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(TOKEN_URL))
                 .header("Content-Type", "application/x-www-form-urlencoded")
-                .timeout(REQUEST_TIMEOUT)
                 .POST(HttpRequest.BodyPublishers.ofString(form, StandardCharsets.UTF_8))
                 .build();
 
-        HttpResponse<String> response = sendWithRetry(request, "Google OAuth token refresh");
+        HttpResponse<String> response = HTTP_CLIENT.send(request,
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException("Google OAuth token refresh returned HTTP "
+                    + response.statusCode() + ": " + abbreviate(response.body(), 500));
+        }
 
         JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
         String accessToken = json.has("access_token") ? json.get("access_token").getAsString() : "";
@@ -121,12 +125,30 @@ final class GoogleChatApiNotifier {
                 .uri(URI.create(CHAT_API + "/upload/v1/" + space + "/attachments:upload?uploadType=multipart"))
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Content-Type", "multipart/related; boundary=" + boundary)
-                .timeout(REQUEST_TIMEOUT)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
 
-        HttpResponse<String> response = sendWithRetry(request, "Google Chat attachment upload");
-        return JsonParser.parseString(response.body()).getAsJsonObject();
+        HttpResponse<String> response = HTTP_CLIENT.send(request,
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException("Google Chat attachment upload returned HTTP "
+                    + response.statusCode() + ": " + abbreviate(response.body(), 500));
+        }
+        JsonObject uploaded = JsonParser.parseString(response.body()).getAsJsonObject();
+        JsonObject dataRef = uploaded.has("attachmentDataRef")
+                ? uploaded.getAsJsonObject("attachmentDataRef")
+                : null;
+
+        if (dataRef == null || !dataRef.has("attachmentUploadToken")) {
+            throw new IllegalStateException(
+                    "Google Chat attachment upload returned no attachmentUploadToken: "
+                    + abbreviate(response.body(), 800));
+        }
+
+        JsonObject attachmentRef = new JsonObject();
+        attachmentRef.add("attachmentDataRef", dataRef);
+        return attachmentRef;
     }
 
     private static void sendApiMessage(String accessToken, String space, String message,
@@ -144,41 +166,16 @@ final class GoogleChatApiNotifier {
                 .uri(URI.create(CHAT_API + "/v1/" + space + "/messages"))
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Content-Type", "application/json; charset=UTF-8")
-                .timeout(REQUEST_TIMEOUT)
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
                 .build();
 
-        sendWithRetry(request, "Google Chat API message");
-    }
+        HttpResponse<String> response = HTTP_CLIENT.send(request,
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
-    private static HttpResponse<String> sendWithRetry(HttpRequest request, String operation) throws Exception {
-        Exception last = null;
-
-        for (int attempt = 1; attempt <= NETWORK_ATTEMPTS; attempt++) {
-            try {
-                HttpResponse<String> response = HTTP_CLIENT.send(request,
-                        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-
-                if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                    return response;
-                }
-
-                last = new IllegalStateException(operation + " returned HTTP "
-                        + response.statusCode() + ": " + abbreviate(response.body(), 500));
-            } catch (Exception e) {
-                last = e;
-            }
-
-            if (attempt < NETWORK_ATTEMPTS) {
-                long delaySeconds = attempt * 10L;
-                System.out.println("[WARN] " + operation + " attempt " + attempt
-                        + " failed. Retrying in " + delaySeconds + " seconds...");
-                Thread.sleep(delaySeconds * 1000L);
-            }
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException("Google Chat API returned HTTP "
+                    + response.statusCode() + ": " + abbreviate(response.body(), 500));
         }
-
-        throw new IllegalStateException(operation + " failed after " + NETWORK_ATTEMPTS
-                + " attempts: " + abbreviate(last == null ? "unknown error" : last.getMessage(), 500), last);
     }
 
     private static byte[] buildMultipartBody(String boundary, Path report) throws IOException {
@@ -229,3 +226,4 @@ final class GoogleChatApiNotifier {
         return text.length() <= maxLength ? text : text.substring(0, Math.max(0, maxLength - 3)) + "...";
     }
 }
+

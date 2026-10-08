@@ -35,8 +35,6 @@ public class ConfigReader {
         Properties p = new Properties();
         File file = new File(CONFIG_PATH);
 
-        // The file is git-ignored so credentials stay out of source control. CI supplies
-        // everything through environment variables, so its absence is expected.
         if (!file.exists()) {
             return p;
         }
@@ -106,16 +104,10 @@ public class ConfigReader {
     }
 
     public int getExplicitWait() {
-        return getIntProperty("explicitWait", 90);
+        return getIntProperty("explicitWait", 20);
     }
 
-    /**
-     * The business timezone that Job Monitoring reports in.
-     *
-     * Timestamps shown by the application are rendered by the browser's own date formatting, so the
-     * browser has to run in this zone for a report to read the same everywhere. The Java side uses
-     * the same zone for "business today" and for report metadata. Default Asia/Kolkata.
-     */
+    
     public ZoneId getBusinessZone() {
         String zone = getProperty("businessZone", "Asia/Kolkata");
         if (zone == null || zone.isBlank()) zone = "Asia/Kolkata";
@@ -129,16 +121,12 @@ public class ConfigReader {
     }
 
     public int getPageLoadTimeout() {
-        return getIntProperty("pageLoadTimeout", 120);
+        return getIntProperty("pageLoadTimeout", 45);
     }
 
-    /**
-     * Budget for the Angular app to bootstrap and render its first view. This is separate from
-     * the element wait because a cold CI runner can take far longer to load the bundle and
-     * first API call than a warm developer machine, and that delay is not an element problem.
-     */
+    
     public int getBootTimeout() {
-        return getIntProperty("bootTimeout", 300);
+        return getIntProperty("bootTimeout", 90);
     }
 
     public int getOverlayTimeout() {
@@ -158,7 +146,7 @@ public class ConfigReader {
         return deriveClientName(getURL());
     }
 
-    public List<ClientConfig> getClients() {
+    private List<ClientConfig> getClientsInternal() {
         List<String> urls = readList("CLIENT_URLS", "clientUrls", "client.urls");
         List<ClientConfig> indexedClients = readIndexedClients();
 
@@ -175,7 +163,7 @@ public class ConfigReader {
                     + " client(s) configured.");
             }
             warnAboutMissingIndexedCredentials(mergedClients);
-            return mergedClients;
+            return disambiguateClientNames(mergedClients);
         }
 
         String url = getURL();
@@ -183,10 +171,36 @@ public class ConfigReader {
         return List.of(new ClientConfig(getClientName(), url, getUsername(), getPassword(), false));
     }
 
-    /**
-     * CLIENT_URLS and CLIENT_N_URL are merged so a partially filled CLIENT_URLS list does not silently drop
-     * a configured client. A repeated URL is deduplicated by host and path, and the first source wins.
-     */
+    public List<ClientConfig> getClients() {
+        return getClientsInternal();
+    }
+
+    
+    private List<ClientConfig> disambiguateClientNames(List<ClientConfig> clients) {
+        Map<String, Integer> seen = new LinkedHashMap<>();
+        List<ClientConfig> result = new ArrayList<>();
+
+        for (ClientConfig client : clients) {
+            String name = client.getName();
+            if (name == null || name.isBlank()) {
+                name = deriveClientName(client.getUrl());
+            }
+            int count = seen.merge(name, 1, Integer::sum);
+
+            if (count == 1) {
+                result.add(new ClientConfig(name, client.getUrl(), client.getUsername(), client.getPassword(), client.isSso()));
+                continue;
+            }
+
+            String host = hostOf(client);
+            String unique = name + " (" + host + ")";
+            System.out.println("[CONFIG] Duplicate client name '" + name + "' - reporting as '" + unique + "'.");
+            result.add(new ClientConfig(unique, client.getUrl(), client.getUsername(), client.getPassword(), client.isSso()));
+        }
+        return result;
+    }
+
+    
     private List<ClientConfig> mergeClients(List<ClientConfig> fromUrls, List<ClientConfig> indexedClients) {
         Map<String, ClientConfig> merged = new LinkedHashMap<>();
 
@@ -206,7 +220,7 @@ public class ConfigReader {
         return new ArrayList<>(merged.values());
     }
 
-    /** Reports a configured client that has no credentials, which would fail at sign-in. */
+    
     private void warnAboutMissingIndexedCredentials(List<ClientConfig> clients) {
         for (ClientConfig client : clients) {
             if (isBlank(client.getUsername()) || isBlank(client.getPassword())) {
@@ -219,18 +233,11 @@ public class ConfigReader {
     private static String normalizeUrl(String url) {
         if (url == null) return "";
         String trimmed = url.trim();
-        try {
-            URI uri = URI.create(trimmed.matches("(?i)^https?://.*") ? trimmed : "https://" + trimmed);
-            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
-            int port = uri.getPort();
-            String authority = host + (port > 0 ? ":" + port : "");
-            String path = uri.getPath() == null ? "" : uri.getPath().replaceAll("/{2,}", "/");
-            if (path.length() > 1 && path.endsWith("/")) path = path.substring(0, path.length() - 1);
-            String query = uri.getQuery() == null ? "" : "?" + uri.getQuery();
-            return (authority + path + query).toLowerCase(Locale.ROOT);
-        } catch (Exception e) {
-            return trimmed.toLowerCase(Locale.ROOT).replaceAll("/+$", "");
-        }
+        int schemeEnd = trimmed.indexOf("://");
+        if (schemeEnd >= 0) trimmed = trimmed.substring(schemeEnd + 3);
+        int pathStart = trimmed.indexOf('/');
+        if (pathStart >= 0) trimmed = trimmed.substring(0, pathStart);
+        return trimmed.toLowerCase(Locale.ROOT);
     }
 
     private static boolean isBlank(String value) {
@@ -338,14 +345,25 @@ public class ConfigReader {
             String normalized = url.matches("(?i)^https?://.*") ? url : "https://" + url;
             String host = URI.create(normalized).getHost();
             if (host == null || host.isBlank()) return "";
-            String[] labels = host.toLowerCase(Locale.ROOT).split("\\.");
-            for (String label : labels) {
-                if (label.isBlank() || label.equals("uat") || label.equals("test") || label.equals("qa") || label.equals("prod") || label.equals("www")) continue;
-                return formatClient(label);
-            }
+
+            String cleanHost = host.replaceFirst("^(www\\.|uat\\.|test\\.|qa\\.|prod\\.)", "");
+            return formatClient(cleanHost.replace('.', '-'));
         } catch (Exception ignored) {
         }
         return "";
+    }
+
+    
+    private String hostOf(ClientConfig client) {
+        try {
+            String normalized = client.getUrl().matches("(?i)^https?://.*") ? client.getUrl() : "https://" + client.getUrl();
+            String host = URI.create(normalized).getHost();
+            if (host == null || host.isBlank()) return "unknown";
+
+            return host.replaceFirst("^(www\\.|uat\\.|test\\.|qa\\.|prod\\.)", "");
+        } catch (Exception ignored) {
+            return "unknown";
+        }
     }
 
     private String formatClient(String value) {
@@ -447,3 +465,5 @@ public class ConfigReader {
         return env == null || env.isBlank() ? getProperty("smtpPassword", "") : env.trim();
     }
 }
+
+
