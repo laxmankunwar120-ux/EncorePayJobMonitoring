@@ -7,6 +7,7 @@ import java.util.Locale;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
+import org.openqa.selenium.WebDriverException;
 import org.openqa.selenium.support.FindBy;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -215,8 +216,7 @@ public class LoginPage extends BasePage {
             }
         }
 
-        throw new IllegalStateException(
-            "SERVER_DOWN: Server is down - login could not be completed after 2 attempts.", lastFailure);
+        throw buildLoginFailure("LOGIN", lastFailure);
     }
 
     public void ssoLogin(String employeeId, String password) {
@@ -268,14 +268,52 @@ public class LoginPage extends BasePage {
                 }
             }
         }
-        throw new IllegalStateException(
-            "SERVER_DOWN: Server is down - SSO login could not be completed after 2 attempts.", lastError);
+        throw buildLoginFailure("SSO", lastError);
     }
 
     public void login() {
         login(config.getUsername(), config.getPassword());
     }
 
+
+    private RuntimeException buildLoginFailure(String flow, Throwable error) {
+        String code = classifyLoginFailure(error);
+        String message = switch (code) {
+            case "SERVER_DOWN" -> "Server is down - " + flow + " login could not reach the application after 2 attempts.";
+            case "LOGIN_TIMEOUT" -> "Login timed out - " + flow + " authentication transition did not complete after 2 attempts.";
+            case "BROWSER_FAILURE" -> "Browser/session failure - " + flow + " login could not be completed after 2 attempts.";
+            default -> "Application not ready - " + flow + " login could not reach a usable authenticated state after 2 attempts.";
+        };
+        return new IllegalStateException(code + ": " + message, error);
+    }
+
+    private String classifyLoginFailure(Throwable error) {
+        if (containsMarker(error, "SERVER_DOWN:")) return "SERVER_DOWN";
+        if (containsMarker(error, "LOGIN_REJECTED:")) return "LOGIN_REJECTED";
+        if (containsMarker(error, "MFA_REQUIRED:")) return "MFA_REQUIRED";
+
+        Throwable current = error;
+        while (current != null) {
+            String type = current.getClass().getSimpleName().toLowerCase(Locale.ROOT);
+            String message = current.getMessage();
+            String value = message == null ? "" : message.toLowerCase(Locale.ROOT);
+
+            if (type.contains("nosuchsession") || type.contains("invalidsession")
+                    || value.contains("invalid session id") || value.contains("no such session")
+                    || value.contains("disconnected: not connected to devtools")) {
+                return "BROWSER_FAILURE";
+            }
+            if (type.contains("timeout") || value.contains("timeout")
+                    || value.contains("timed out") || value.contains("did not complete")) {
+                return "LOGIN_TIMEOUT";
+            }
+            if (current instanceof WebDriverException && value.contains("session")) {
+                return "BROWSER_FAILURE";
+            }
+            current = current.getCause();
+        }
+        return "APPLICATION_NOT_READY";
+    }
 
     private boolean containsMarker(Throwable error, String marker) {
         Throwable current = error;
