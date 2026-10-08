@@ -193,12 +193,12 @@ public class ConfigReader {
                     "Unsupported browser '" + browser + "'. Allowed values: chrome, firefox, edge.");
         }
 
-        validatePositiveIntProperty("implicitWait", 0, true);
-        validatePositiveIntProperty("explicitWait", 20, false);
-        validatePositiveIntProperty("pageLoadTimeout", 45, false);
-        validatePositiveIntProperty("bootTimeout", 90, false);
-        validatePositiveIntProperty("overlayTimeout", 8, false);
-        validatePositiveIntProperty("transientFeedbackTimeout", 10, false);
+        validatePositiveIntProperty("implicitWait", true);
+        validatePositiveIntProperty("explicitWait", false);
+        validatePositiveIntProperty("pageLoadTimeout", false);
+        validatePositiveIntProperty("bootTimeout", false);
+        validatePositiveIntProperty("overlayTimeout", false);
+        validatePositiveIntProperty("transientFeedbackTimeout", false);
 
         String zone = getProperty("businessZone", "Asia/Kolkata");
         try {
@@ -266,7 +266,7 @@ public class ConfigReader {
                 + " client(s), browser=" + browser + ", runMode=" + runMode + ".");
     }
 
-    private void validatePositiveIntProperty(String key, int defaultValue, boolean allowZero) {
+    private void validatePositiveIntProperty(String key, boolean allowZero) {
         String raw = getProperty(key, "");
         if (raw.isBlank()) return;
         try {
