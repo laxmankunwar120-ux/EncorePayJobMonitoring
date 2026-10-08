@@ -175,6 +175,112 @@ public class ConfigReader {
         return getClientsInternal();
     }
 
+    /**
+     * Validates all configuration required before a browser is created.
+     * This is deliberately fail-fast: malformed URLs, missing credentials,
+     * unsupported browsers, invalid timeouts, and invalid business zones
+     * must never be discovered halfway through a multi-client run.
+     * Secrets are never included in validation errors.
+     */
+    public void validateForMonitoring(List<ClientConfig> clients) {
+        if (clients == null || clients.isEmpty()) {
+            throw new IllegalStateException("No EncorePay clients are configured.");
+        }
+
+        String browser = getBrowser().trim().toLowerCase(Locale.ROOT);
+        if (!List.of("chrome", "firefox", "edge", "msedge").contains(browser)) {
+            throw new IllegalStateException(
+                    "Unsupported browser '" + browser + "'. Allowed values: chrome, firefox, edge.");
+        }
+
+        validatePositiveIntProperty("implicitWait", 0, true);
+        validatePositiveIntProperty("explicitWait", 20, false);
+        validatePositiveIntProperty("pageLoadTimeout", 45, false);
+        validatePositiveIntProperty("bootTimeout", 90, false);
+        validatePositiveIntProperty("overlayTimeout", 8, false);
+        validatePositiveIntProperty("transientFeedbackTimeout", 10, false);
+
+        String zone = getProperty("businessZone", "Asia/Kolkata");
+        try {
+            ZoneId.of(zone);
+        } catch (DateTimeException e) {
+            throw new IllegalStateException("Invalid businessZone '" + zone + "'.");
+        }
+
+        Map<String, String> seenUrls = new LinkedHashMap<>();
+        List<String> errors = new ArrayList<>();
+
+        for (int i = 0; i < clients.size(); i++) {
+            ClientConfig client = clients.get(i);
+            String label = client == null || client.getName().isBlank()
+                    ? "client." + (i + 1)
+                    : client.getName();
+
+            if (client == null) {
+                errors.add(label + " is null.");
+                continue;
+            }
+
+            String url = client.getUrl();
+            if (url.isBlank()) {
+                errors.add(label + " has no URL.");
+            } else {
+                try {
+                    String normalized = url.matches("(?i)^https?://.*") ? url : "https://" + url;
+                    URI uri = URI.create(normalized);
+                    if (uri.getHost() == null || uri.getHost().isBlank()) {
+                        errors.add(label + " has an invalid URL host.");
+                    } else {
+                        String key = normalizeUrl(url);
+                        String previous = seenUrls.putIfAbsent(key, label);
+                        if (previous != null) {
+                            errors.add(label + " duplicates the URL configured for " + previous + ".");
+                        }
+                    }
+                } catch (Exception e) {
+                    errors.add(label + " has an invalid URL format.");
+                }
+            }
+
+            if (client.getName().isBlank()) {
+                errors.add(label + " has no client name.");
+            }
+            if (client.getUsername().isBlank()) {
+                errors.add(label + " has no username.");
+            }
+            if (client.getPassword().isBlank()) {
+                errors.add(label + " has no password.");
+            }
+        }
+
+        String runMode = getProperty("runMode", "multiple").trim().toLowerCase(Locale.ROOT);
+        if (!runMode.equals("single") && !runMode.equals("multiple")) {
+            errors.add("Invalid runMode '" + runMode + "'. Allowed values: single or multiple.");
+        }
+
+        if (!errors.isEmpty()) {
+            throw new IllegalStateException("Configuration preflight failed: " + String.join(" | ", errors));
+        }
+
+        System.out.println("[CONFIG] Preflight passed for " + clients.size()
+                + " client(s), browser=" + browser + ", runMode=" + runMode + ".");
+    }
+
+    private void validatePositiveIntProperty(String key, int defaultValue, boolean allowZero) {
+        String raw = getProperty(key, "");
+        if (raw.isBlank()) return;
+        try {
+            int value = Integer.parseInt(raw);
+            if (allowZero ? value < 0 : value <= 0) {
+                throw new IllegalStateException(
+                        "Configuration property '" + key + "' must be " + (allowZero ? "zero or greater." : "greater than zero."));
+            }
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException(
+                    "Configuration property '" + key + "' must be a valid integer.");
+        }
+    }
+
     
     private List<ClientConfig> disambiguateClientNames(List<ClientConfig> clients) {
         Map<String, Integer> seen = new LinkedHashMap<>();
