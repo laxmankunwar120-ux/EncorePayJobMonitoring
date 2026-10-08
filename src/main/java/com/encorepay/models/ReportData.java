@@ -117,6 +117,15 @@ public final class ReportData {
             String client = safe(job.getClientName());
             if (client.isBlank()) continue;
 
+            // Synthetic JobStatus records are client-level fallback placeholders
+            // created when login/application monitoring fails before a real job
+            // was inspected. They must never be presented as if the failure
+            // happened inside that job (for example: "Post Receipts: Server is down").
+            // The real client-level failure is carried separately in clientFailures.
+            if (job.isSynthetic()) {
+                continue;
+            }
+
             ClientHealth health = clientHealth.computeIfAbsent(client, ClientHealth::new);
 
             // Client state must reflect the real application job outcome.
