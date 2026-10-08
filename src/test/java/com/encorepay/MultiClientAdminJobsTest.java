@@ -647,12 +647,6 @@ public class MultiClientAdminJobsTest {
         }
     }
 
-    private boolean isLoginStageFailure(ActionDriver action) {
-        if (action == null) return false;
-        String step = action.currentStep();
-        return step != null && step.toLowerCase(Locale.ROOT).contains("auth");
-    }
-
     private boolean isExplicitLoginRejection(Throwable error) {
         Throwable current = error;
         while (current != null) {
@@ -662,10 +656,6 @@ public class MultiClientAdminJobsTest {
             current = current.getCause();
         }
         return false;
-    }
-
-    private boolean isServerDownLoginFailure(Throwable error) {
-        return containsErrorMarker(error, "SERVER_DOWN:");
     }
 
     private String classifyLoginClientFailure(Throwable error, WebDriver driver) {
