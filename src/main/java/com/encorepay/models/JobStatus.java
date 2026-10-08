@@ -94,6 +94,18 @@ public class JobStatus {
         return total;
     }
 
+    /**
+     * Receipt-level reconciliation contract for Post Receipts.
+     * A known FAILED count is complete only when every failed receipt has
+     * exactly one captured failure reason. Unknown FAILED counts cannot be
+     * reconciled and therefore return false.
+     */
+    public boolean isFailureReasonCountReconciled() {
+        if (!"Post Receipts Job".equalsIgnoreCase(clean(jobName))) return true;
+        if (failedCount < 0) return false;
+        return getTotalFailureReasonCount() == failedCount;
+    }
+
     /** Returns the raw status exactly as captured from the application. Never converts. */
     public String getRawStatus() {
         return status == null ? "" : status.trim();
