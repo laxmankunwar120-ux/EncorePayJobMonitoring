@@ -551,6 +551,19 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 status.setJobFailureReason(
                         "Receipt capture incomplete: " + String.join("; ", new LinkedHashSet<>(notes)));
             }
+
+            if (failed.totalCount >= 0) {
+                int capturedReasons = totalCapturedReasonCount(failed.reasonCounts);
+                if (capturedReasons != failed.totalCount) {
+                    String reconciliation = "Receipt failure reason reconciliation failed: captured "
+                            + capturedReasons + " of " + failed.totalCount + " FAILED receipts.";
+                    String existingValidation = status.getValidationMessage();
+                    status.setValidationMessage(
+                            existingValidation == null || existingValidation.isBlank()
+                                    ? reconciliation
+                                    : existingValidation + "; " + reconciliation);
+                }
+            }
         } catch (Exception e) {
             String captureProblem = "Receipt monitoring flow failed: " + safeText(e);
             status.setJobFailureReason(appendProblem(status.getJobFailureReason(), captureProblem));
