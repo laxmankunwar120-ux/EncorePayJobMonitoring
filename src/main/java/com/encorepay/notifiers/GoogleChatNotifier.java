@@ -88,6 +88,66 @@ private static void appendSummary(StringBuilder message, ReportData data) {
     allJobs.addAll(data.getCollectionJobs());
     allJobs.addAll(data.getUpcomingJobs());
 
+    int totalJobs = 0;
+    int totalSuccessfulJobs = 0;
+    int totalFailedJobs = 0;
+    int totalPartialJobs = 0;
+    int totalOtherJobs = 0;
+    long overallFailedReceipts = 0;
+    long overallPendingReceipts = 0;
+
+    for (JobStatus job : allJobs) {
+        if (job == null || job.isSynthetic()) {
+            continue;
+        }
+
+        totalJobs++;
+
+        String normalizedStatus = safe(job.getDisplayStatus())
+                .trim()
+                .toUpperCase(Locale.ROOT)
+                .replaceAll("[\\s-]+", "_");
+
+        if (normalizedStatus.contains("PARTIAL")
+                && normalizedStatus.contains("SUCC")) {
+            totalPartialJobs++;
+        } else if (normalizedStatus.equals("SUCCESS")
+                || normalizedStatus.equals("SUCCESSFUL")
+                || normalizedStatus.equals("COMPLETED")
+                || normalizedStatus.equals("SUCCEEDED")) {
+            totalSuccessfulJobs++;
+        } else if (normalizedStatus.equals("FAILED")
+                || normalizedStatus.equals("FAILURE")) {
+            totalFailedJobs++;
+        } else {
+            totalOtherJobs++;
+        }
+
+        if (job.getFailedCount() >= 0) {
+            overallFailedReceipts += job.getFailedCount();
+        }
+
+        if (job.getPendingCount() >= 0) {
+            overallPendingReceipts += job.getPendingCount();
+        }
+    }
+
+    message.append("*OVERALL JOB SUMMARY*").append('\\n');
+    message.append("Total Jobs                 : ")
+            .append(totalJobs).append('\\n');
+    message.append("Successful Jobs            : ")
+            .append(totalSuccessfulJobs).append('\\n');
+    message.append("Partially Successful Jobs  : ")
+            .append(totalPartialJobs).append('\\n');
+    message.append("Failed Jobs                : ")
+            .append(totalFailedJobs).append('\\n');
+    message.append("Other / Unavailable Status : ")
+            .append(totalOtherJobs).append('\\n');
+    message.append("Total Failed Receipts      : ")
+            .append(overallFailedReceipts).append('\\n');
+    message.append("Total Pending Receipts     : ")
+            .append(overallPendingReceipts).append("\\n\\n");
+
     Map<String, List<JobStatus>> jobsByClient = new java.util.LinkedHashMap<>();
     for (String configuredClient : data.getConfiguredClients()) {
         String client = safe(configuredClient);
