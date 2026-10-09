@@ -1949,8 +1949,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             System.out.println("[WARN] Job status is FAILED but Reason could not be captured for " + jobName + ".");
         }
 
-        closeExecutionModalUsingUi();
-
         boolean partialPostingFailure = JOB_POST_RECEIPTS.equalsIgnoreCase(jobName)
                 && partialReceiptOutcome;
         boolean shouldCapturePostingLogs = partialPostingFailure
@@ -1985,6 +1983,7 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             }
         }
 
+        closeExecutionModalUsingUi();
         closeJobDetailsUsingUi();
         waitForJobsPage();
     }
