@@ -184,10 +184,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     public void navigateToAdminJobs() {
         if (isJobsPageLoaded()) return;
 
-        // The EncorePay client exposes a real Angular route for the Jobs page:
-        // /admin/job. Prefer direct route navigation after authentication so a
-        // slow/stale Admin hover menu cannot make a healthy client look like an
-        // unavailable job run. UI-menu navigation remains the bounded fallback.
         validateSessionAndWindow();
         if (!isAuthenticatedApplicationVisible()) {
             throw new IllegalStateException("Authenticated application shell is not available before opening Admin Jobs.");
@@ -213,8 +209,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
         }
 
-        // Last UI fallback. This preserves the existing business flow for client
-        // deployments where the route is protected by a menu transition.
         try {
             hoverAdminMenu();
             clickJobInAdminMenu();
@@ -263,10 +257,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         action.markStep("navigate to Admin Jobs");
         ensureJobsPage();
 
-        // Each required job is a read-only monitoring operation. A transient
-        // Angular render, stale DOM, or route transition must not turn a healthy
-        // client into N/A data. Retry the complete capture once from a clean Jobs
-        // page before publishing an unavailable result.
         results.add(captureJobWithRetry(clientName, JOB_POST_RECEIPTS,
                 () -> monitorPostReceiptJob(clientName)));
 
@@ -280,8 +270,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 results.add(captureJobWithRetry(clientName, JOB_UPCOMING_DEMAND,
                         () -> monitorExecutionJob(JOB_UPCOMING_DEMAND, clientName)));
             } else {
-                // Optional job is genuinely absent for this client. Represent that
-                // explicitly as N/A; it is not a monitoring failure.
                 JobStatus unavailable = new JobStatus();
                 unavailable.setClientName(clientName);
                 unavailable.setJobName(JOB_UPCOMING_DEMAND);
@@ -359,9 +347,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         unavailable.setStatus("N/A");
         unavailable.setDateTime("N/A");
 
-        // Never leak Selenium implementation details into the business report.
-        // A job-level monitoring problem is described in plain language; the
-        // full exception remains in the execution log for diagnostics.
         String diagnostic = safeText(cause);
         String reason;
         if (diagnostic.toLowerCase(Locale.ROOT).contains("server is down")
@@ -386,11 +371,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         if (message == null || message.isBlank()) return "no further detail";
         String cleaned = message.replaceAll("\\s+", " ").trim();
 
-        // Selenium TimeoutException messages end with the internal toString of
-        // the wait condition lambda (for example "Expected condition failed:
-        // waiting for com.encorepay.pages.AdminJobsPage$$Lambda...@1a2b3c").
-        // That is internal noise for a manager report; keep the meaningful
-        // part and state plainly that the UI did not reach the expected state.
         int conditionIndex = cleaned.indexOf("Expected condition failed: waiting for");
         if (conditionIndex >= 0) {
             String prefix = cleaned.substring(0, conditionIndex).trim();
@@ -434,21 +414,13 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
             String todayDate = selectReceiptDateToday();
 
-            // Capture PENDING independently. A failure here must not erase FAILED data.
             pending = captureReceiptsForStatusWithRetry("PENDING", todayDate, 3);
 
-            // Capture FAILED independently. A failure here must not prevent execution
-            // history from being captured below.
             failed = captureReceiptsForStatusWithRetry("FAILED", todayDate, 3);
 
             status.setPendingCount(pending.totalCount);
             status.setFailedCount(failed.totalCount);
 
-            // Every FAILED receipt must be captured. Page size is an optimization only.
-            // We discover the sizes the application actually exposes, prefer the
-            // largest available size, and always paginate until the paginator says
-            // there are no receipts left. No receipt count is used to decide whether
-            // the last partial page should be scanned.
             if (failed.totalCount > 0) {
                 try {
                     int preferredPageSize = findPreferredReceiptPageSize(failed.totalCount);
@@ -459,8 +431,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                                     + ", using discovered page size " + preferredPageSize
                                     + " (current=" + currentPageSize + ")");
                             if (!setReceiptPageSizeAndVerify(preferredPageSize)) {
-                                // Page-size optimization is never allowed to turn into
-                                // a receipt-capture failure. Continue with the active size.
                                 log("[FAILED] Could not apply optimized page size "
                                         + preferredPageSize + "; continuing with active paginator size "
                                         + readCurrentReceiptPageSize());
@@ -471,9 +441,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     goToFirstReceiptPage();
                     waitForFailedReceiptResultsReady();
 
-                    // The FAILED receipt grid is rendered from GET /api/receipts.
-                    // Read the exact same UI-backed dataset first; this is faster and
-                    // avoids Angular Material overlay timing for large failed-receipt runs.
                     Map<String, Integer> reasonCounts = new LinkedHashMap<>();
                     RuntimeException firstCaptureFailure = null;
                     try {
@@ -485,9 +452,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
                     int captured = totalCapturedReasonCount(reasonCounts);
                     if (captured != failed.totalCount) {
-                        // Recover in-place. The receipt screen must remain open while the
-                        // FAILED dataset is reloaded; it must never be closed as a result
-                        // of a transient search/overlay/data exception.
                         log("[FAILED] UI-backed capture returned " + captured + "/" + failed.totalCount
                                 + "; refreshing FAILED results in-place");
                         try {
@@ -507,9 +471,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     }
 
                     if (captured != failed.totalCount) {
-                        // Final UI-visible fallback. This is deliberately only after the
-                        // exact UI-backed dataset has been retried and it keeps the browser
-                        // on the FAILED page. It never closes the receipt page.
                         try {
                             Map<String, Integer> menuCounts = readAllFailureReasonsWithCounts(failed.totalCount);
                             reasonCounts.clear();
@@ -569,15 +530,8 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             status.setJobFailureReason(appendProblem(status.getJobFailureReason(), captureProblem));
             log("[POST RECEIPTS] Non-fatal capture failure: " + safeText(e));
         } finally {
-            // Deliberately do not close/recover the receipt page from this finally block.
-            // Any transient FAILED-search/capture exception must be recovered while the
-            // receipt UI is still open. Closing here was the root cause of the observed
-            // "switch to FAILED and immediately close" behaviour.
         }
 
-        // Execution history is authoritative for job Status/DateTime and is read only
-        // after the receipt capture phase has finished. The receipt page is then closed
-        // by the normal jobs-page recovery path, never as a capture-error side effect.
         try {
             ensureJobsPage();
             captureLatestExecutionFromJobsList(JOB_POST_RECEIPTS, status);
@@ -640,9 +594,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private void validateCapturedExecution(JobStatus status, String jobName) {
         String raw = status.getRawStatus();
-        // N/A is an intentional, trustworthy representation when the application
-        // rendered the execution but did not expose a Status value. Do not retry
-        // and eventually replace the valid timestamp with an N/A/N/A placeholder.
         if (raw.isBlank()) {
             throw new IllegalStateException("Execution record was not captured for " + jobName + ".");
         }
@@ -695,7 +646,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         ReceiptCapture capture = new ReceiptCapture();
 
-        // 1. Verify date is still set correctly
         WebElement date = findDateInput();
         if (date != null) {
             String currentValue = clean(date.getAttribute("value"));
@@ -711,15 +661,11 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
         }
 
-        // 2. Select the target status (PENDING or FAILED)
         if (!selectPostingStatus(targetStatus)) {
             capture.problems.add("LMS Posting Status '" + targetStatus + "' could not be selected.");
             return capture;
         }
 
-        // 3. Click Search exactly once for this status and wait for the client resolver
-        // to render the requested dataset. For FAILED, verify both the selected control
-        // and the URL query state so PENDING rows can never be mistaken for FAILED rows.
         searchReceipts(targetStatus, capture);
         if ("FAILED".equalsIgnoreCase(targetStatus)) {
             waitForFailedReceiptResultsReady();
@@ -727,7 +673,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             waitForReceiptResults();
         }
 
-        // 4. Read total count from the UI paginator (Z in "X - Y of Z")
         capture.totalCount = readReceiptTotalCount(capture);
 
         if (capture.totalCount == UNKNOWN_COUNT) {
@@ -742,12 +687,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         List<Integer> available = findAvailableReceiptPageSizes();
 
         if (available.isEmpty()) {
-            // The client paginator can render its page-size options
-            // only after the expand control is opened (Angular
-            // Material mat-select). Open the expand control, read the
-            // sizes from the rendered overlay, and close it again so
-            // the largest available size (for example 100) can be
-            // applied when the page currently shows only 10 rows.
             available = readReceiptPageSizesFromExpandControl();
         }
 
@@ -758,12 +697,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         return available.get(available.size() - 1);
     }
 
-    /**
-     * Opens the receipt page-size expand control and reads the page
-     * sizes it renders in its overlay. Used when the client paginator
-     * exposes no native select element. The overlay is closed again
-     * afterwards; this probe never reloads receipt data.
-     */
     private List<Integer> readReceiptPageSizesFromExpandControl() {
         Set<Integer> sizes = new java.util.TreeSet<>();
         String currentSize = String.valueOf(readCurrentReceiptPageSize());
@@ -853,7 +786,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         String expected = String.valueOf(desiredSize);
 
-        // Check if already set via query param
         if (expected.equals(queryParam("size"))) {
             log("[PAGE SIZE] Already set to " + desiredSize + " via query param");
             return true;
@@ -861,7 +793,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         boolean applied = false;
 
-        // Try native select element first
         WebElement target = findReceiptPageSizeSelect(expected);
         if (target != null) {
             scrollIntoView(target);
@@ -871,7 +802,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
         }
 
-        // Fallback: trigger-based (mat-select trigger for Angular Material)
         if (!applied) {
             WebElement trigger = findReceiptPageSizeTrigger(expected);
             if (trigger != null) {
@@ -900,22 +830,17 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             }
         }
 
-        // Fallback: JavaScript-based page size control. Directly manipulate
-        // the select element and trigger Angular change detection. This is
-        // more reliable than clicking when the UI has overlays or stale refs.
         if (!applied) {
             if (applyPageSizeViaJavaScript(expected)) {
                 applied = waitUntilReceiptPageSizeIsApplied(desiredSize);
             }
         }
 
-        // Final verification: check query param and paginator
         if (!applied) {
             applied = expected.equals(queryParam("size"));
         }
 
         if (!applied) {
-            // Try to verify via paginator range
             String range = readPaginatorRange();
             Matcher matcher = PAGER_PATTERN.matcher(range);
             if (matcher.matches()) {
@@ -963,12 +888,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         return false;
     }
 
-    /**
-     * JavaScript-based page size control as a last-resort fallback.
-     * Directly manipulates the select element and fires Angular
-     * change-detection events. More reliable than clicking when
-     * the UI has overlays, stale element references, or timing issues.
-     */
     private boolean applyPageSizeViaJavaScript(String expected) {
         try {
             Boolean result = (Boolean) ((JavascriptExecutor) driver).executeScript(
@@ -1013,12 +932,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     }
 
     private boolean refreshFailedReceiptResultsInPlace(String expectedDate) {
-        // The FAILED dataset is already the active dataset at this point: the
-        // LMS Posting Status was switched to FAILED and searched earlier in the
-        // flow. Clicking Search again would only reload the same data. The
-        // UI-backed read and the row-by-row fallback both work against the
-        // already-loaded FAILED results, so only verify that the expected
-        // state is still in place.
         if (!expectedDate.equals(readDateFieldValue())) return false;
         if (!"FAILED".equalsIgnoreCase(readSelectedPostingStatus())) return false;
         waitForFailedReceiptResultsReady();
@@ -1140,9 +1053,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
                 if (result instanceof List && !((List<?>) result).isEmpty()) return result;
 
-                // Keep the contract tolerant of API gateways/wrappers that return
-                // the same array under content/body while still rejecting a truly
-                // empty page because the UI's total count says receipts remain.
                 if (result instanceof Map<?, ?> map) {
                     Object error = map.get("__error");
                     if (error != null) throw new IllegalStateException(String.valueOf(error));
@@ -1199,9 +1109,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             Set<String> pageProcessed = new LinkedHashSet<>();
             int noProgressPasses = 0;
 
-            // Do not rely on a fixed row count alone. Angular can re-render the table
-            // after a menu closes. Re-query the DOM and identify receipts by row content
-            // so a re-render cannot cause row N+1 to be skipped.
             while (true) {
                 List<WebElement> rows = visibleReceiptRows();
                 boolean foundUncaptured = false;
@@ -1224,7 +1131,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     capturedReceiptSignatures.add(signature);
                     pageProcessed.add(signature);
 
-                    // The menu must be closed and verified before the next row.
                     if (!closeFailureReasonMenu(index)) {
                         throw new IllegalStateException("Failure reason menu remained open after receipt "
                                 + signature + "; refusing to continue to the next receipt");
@@ -1260,14 +1166,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 return totalReasonCounts;
             }
 
-            // The current page is fully consumed. When more FAILED
-            // receipts remain than the current page size, expand the
-            // page to the largest supported size instead of paginating:
-            // every client exposes the sizes 10/25/50/100, so the
-            // remaining receipts load on the current page. Expansion
-            // resets the paginator to the first page; receipts are
-            // identified by their global position in the result set,
-            // so receipts already captured are not captured again.
             if (expectedTotal > 0 && capturedAfterPage < expectedTotal
                     && expandReceiptPageToLargestSize()) {
                 lastRange = "";
@@ -1310,33 +1208,12 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         return totalReasonCounts;
     }
 
-    /**
-     * Standard page sizes that every EncorePay client paginator
-     * exposes. Used as a guaranteed fallback when the dynamic
-     * discovery (native select or expand-control probe) cannot
-     * read the available sizes from the current UI.
-     */
     private static final int[] STANDARD_PAGE_SIZES = {100, 50, 25, 10};
 
-    /**
-     * Expands the receipt page to the largest supported page
-     * size when the current page shows fewer rows. Every client
-     * exposes the sizes 10/25/50/100, so the remaining FAILED
-     * receipts load on the current page instead of paginating
-     * one page at a time. Returns false when the page size is
-     * already the largest supported size or no larger size
-     * could be applied.
-     *
-     * Discovery is attempted first, but the standard sizes are
-     * always tried as a fallback so expansion never silently
-     * degrades to "Next Page" pagination.
-     */
     private boolean expandReceiptPageToLargestSize() {
         int current = readCurrentReceiptPageSize();
         int preferred = findPreferredReceiptPageSize(UNKNOWN_COUNT);
 
-        // Build the ordered list of candidate sizes to try, largest first.
-        // Prefer the discovered size, then fall back to the standard sizes.
         List<Integer> candidates = new ArrayList<>();
         if (preferred > 0) {
             candidates.add(preferred);
@@ -1381,7 +1258,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     throw new IllegalStateException("Receipt row " + (rowIndex + 1) + " has no failure icon");
                 }
                 scrollIntoViewSmooth(icon);
-                // Open only the row's Angular menu trigger; never click arbitrary coordinates.
                 fastClick(icon);
                 wait.until(d -> isFailureReasonMenuOpen());
                 String reason = trimReason(readFailureReason());
@@ -1420,7 +1296,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     }
 
     private String selectReceiptDateToday() {
-        // type="date" input expects YYYY-MM-DD format
         String isoDate = LocalDate.now(config.getBusinessZone())
                 .format(DateTimeFormatter.ISO_LOCAL_DATE); // YYYY-MM-DD
 
@@ -1429,7 +1304,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             throw new IllegalStateException("Receipt Date input not found");
         }
 
-        // Use JavaScript to set the value and trigger all necessary Angular events
         ((JavascriptExecutor) driver).executeScript(
             "var el = arguments[0], v = arguments[1];" +
             "el.value = v;" +
@@ -1439,7 +1313,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             "el.focus();",
             date, isoDate);
 
-        // Verify
         for (int i = 0; i < 5; i++) {
             String current = clean(date.getAttribute("value"));
             if (isoDate.equals(current)) {
@@ -1485,7 +1358,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 WebElement selectElement = new WebDriverWait(driver, Duration.ofSeconds(3))
                         .until(ExpectedConditions.elementToBeClickable(LMS_POSTING_STATUS));
                 
-                // Use JavaScript to find and select the option, triggering Angular change detection
                 Boolean success = (Boolean) ((JavascriptExecutor) driver).executeScript(
                     "var s = arguments[0], v = arguments[1];" +
                     "for (var i = 0; i < s.options.length; i++) {" +
@@ -1504,14 +1376,12 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     selectElement, status);
 
                 if (Boolean.TRUE.equals(success)) {
-                    // Verify
                     String selected = clean(new Select(selectElement).getFirstSelectedOption().getText());
                     if (status.equalsIgnoreCase(selected)) {
                         return true;
                     }
                 }
 
-                // Fallback: native Select API
                 Select select = new Select(selectElement);
                 for (WebElement option : select.getOptions()) {
                     String text = clean(option.getText());
@@ -1520,7 +1390,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                         if (status.equalsIgnoreCase(text)) select.selectByVisibleText(option.getText());
                         else select.selectByValue(option.getAttribute("value"));
                         
-                        // Trigger Angular events
                         ((JavascriptExecutor) driver).executeScript(
                             "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));" +
                             "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));" +
@@ -1571,7 +1440,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         while (System.currentTimeMillis() < deadline) {
             if (expected.equals(queryParam("size"))) {
-                // Also verify rows are loaded
                 if (!visibleReceiptRows().isEmpty() || isReceiptEmpty()) {
                     return true;
                 }
@@ -1589,7 +1457,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
                 if (start == 1 && actualVisible == expectedVisible
                         ) {
-                    // Also verify rows are loaded
                     if (!visibleReceiptRows().isEmpty() || isReceiptEmpty()) {
                         return true;
                     }
@@ -1681,7 +1548,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         ensureReceiptPage();
         ensureReceiptFiltersVisible();
 
-        // Never allow a failure-reason overlay to interfere with filter changes.
         if (isFailureReasonMenuOpen() && !closeFailureReasonMenu(-1)) {
             throw new IllegalStateException("Cannot start " + expectedStatus
                     + " receipt search while a failure-reason menu is still open");
@@ -1734,10 +1600,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             ((JavascriptExecutor) driver).executeScript("arguments[0].blur();", search);
         } catch (Exception ignored) { }
 
-        // The client performs router navigation with the selected filter and runs the
-        // PostReceipts resolver before the new component data is rendered. Waiting for
-        // the query parameter therefore avoids mistaking the previous PENDING rows for
-        // the new FAILED dataset when both happen to have the same paginator range.
         try {
             wait.until(d -> {
                 String urlStatus = queryParam("lmsPostingStatus");
@@ -1774,11 +1636,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 + "; paginator='" + finalRange + "', rows=" + visibleReceiptRows().size());
     }
 
-    /**
-     * Reads a query-string parameter from the current browser URL.
-     * This is intentionally implemented without Angular internals so it remains
-     * stable across client-side route changes and framework upgrades.
-     */
     private String queryParam(String name) {
         if (name == null || name.isBlank()) {
             return "";
@@ -1852,23 +1709,11 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             try {
                 return Integer.parseInt(matcher.group("total"));
             } catch (NumberFormatException ignored) {
-                // Fall through to unknown.
             }
         }
         return UNKNOWN_COUNT;
     }
 
-    /**
-     * Uniquely identifies a receipt on the current page. The
-     * visible row text alone is not unique: the failure reason
-     * is only rendered after its menu opens, so two different
-     * FAILED receipts can share identical visible text and must
-     * both be captured. A receipt is identified by its global
-     * position in the result set (paginator start + row index),
-     * which stays stable when the page size is expanded and the
-     * paginator resets to the first page, while still
-     * distinguishing different receipts on the same page.
-     */
     private String buildRowSignature(String pageMarker, WebElement row, int index) {
         String position = globalRowPosition(pageMarker, index);
         try {
@@ -1882,13 +1727,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         }
     }
 
-    /**
-     * Global position of a row in the result set. A paginator
-     * range of "X - Y of Z" means the first row on the page is
-     * the X-th receipt overall, so the row at index has global
-     * position X + index. Falls back to the page marker when the
-     * range cannot be parsed.
-     */
     private String globalRowPosition(String pageMarker, int index) {
         Matcher matcher = PAGER_PATTERN.matcher(clean(pageMarker));
         if (matcher.matches()) {
@@ -1938,9 +1776,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
     private boolean closeFailureReasonMenu(int rowIndex) {
         if (!isFailureReasonMenuOpen()) return true;
 
-        // Angular Material owns the menu state. Close the currently expanded
-        // trigger instead of clicking arbitrary page coordinates. This avoids
-        // accidentally activating Search/filters underneath the overlay.
         try {
             for (WebElement trigger : driver.findElements(OPEN_FAILURE_MENU_TRIGGER)) {
                 if (!isDisplayed(trigger)) continue;
@@ -1953,9 +1788,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             }
         } catch (Exception ignored) { }
 
-        // Angular Material also closes a mat-menu on Escape. Send Escape to the
-        // active browser context; do not click body/backdrop because that can
-        // interact with controls behind the overlay.
         for (int attempt = 0; attempt < 2; attempt++) {
             try {
                 new Actions(driver).sendKeys(Keys.ESCAPE).perform();
@@ -1995,9 +1827,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         ensureJobsPage();
         WebElement jobRow = requireJobRow(jobName);
 
-        // The execution details view is the primary source for the latest
-        // execution Status and End Date/Time. Retry it once so a transient
-        // overlay or route timing issue cannot erase the client's real data.
         RuntimeException lastCaptureError = null;
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
@@ -2008,8 +1837,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 log("[WARN] Execution details capture attempt " + attempt + "/2 failed for "
                         + jobName + ": " + safeText(e));
 
-                // Recover the UI state before retrying: close any open
-                // execution modal and job details view, then re-locate the row.
                 try {
                     try {
                         closeExecutionModalUsingUi();
@@ -2028,9 +1855,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             }
         }
 
-        // The jobs list renders the latest execution Status and End Date/Time
-        // columns. Fall back to that same source data instead of reporting
-        // N/A when the execution details view could not be captured.
         if (readLatestExecutionFromJobRow(jobRow, status)) {
             status.setJobFailureReason(appendProblem(status.getJobFailureReason(),
                     "Execution details were read from the jobs list because the execution "
@@ -2044,10 +1868,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
     }
 
     private void captureExecutionDetailsFromModal(String jobName, WebElement jobRow, JobStatus status) {
-        // Consistent global scroller for every job flow (Post Receipts,
-        // Download Collection Items, Upcoming Demand). Scroll to the very
-        // bottom of the jobs area so the job Status column is fully visible
-        // before reading the execution details.
         scrollToBottomAround(jobRow);
 
         WebElement jobView = visibleInside(jobRow, VIEW_ACTION);
@@ -2072,10 +1892,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         WebElement modal = waitForExecutionModal();
         scrollExecutionModalToBottom(modal);
 
-        // Capture start/end independently of Status. Some client executions legitimately
-        // expose no Status value while still exposing the execution start timestamp.
-        // The report must show N/A for the missing status, but it must not lose the
-        // available execution date/time.
         String executionStatus = waitForModalField(modal, "Status");
         String endDate = waitForModalField(modal, "End Date");
         String endTime = waitForModalField(modal, "End Time");
@@ -2084,9 +1900,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
 
         String endDateTime = combineDateTime(endDate, endTime);
         String startDateTime = combineDateTime(startDate, startTime);
-        // When Status is unavailable, Start Date/Time is the most useful and
-        // deterministic timestamp to report. For a normal completed execution,
-        // continue preferring End Date/Time exactly as before.
         String dateTime = executionStatus.isBlank()
                 ? (!startDateTime.isBlank() ? startDateTime : endDateTime)
                 : (!endDateTime.isBlank() ? endDateTime : startDateTime);
@@ -2103,8 +1916,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         }
 
         if (executionStatus.isBlank()) {
-            // Missing status is a valid unavailable-data state, not a Selenium
-            // failure. Preserve it as N/A and keep any captured timestamp.
             executionStatus = "N/A";
         }
         if (dateTime.isBlank()) {
@@ -2134,9 +1945,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         if (!jobFailureReason.isBlank() && isFailedStatus(executionStatus) && !receiptPostingFailure) {
             status.setJobFailureReason(trimReason(jobFailureReason));
         } else if (isFailedStatus(executionStatus) && jobFailureReason.isBlank()) {
-            // Preserve the real execution status. Never allow a missing reason to
-            // throw later and replace the entire client's valid monitoring result
-            // with N/A. Record an explicit capture note instead.
             status.setJobFailureReason("Execution status is FAILED, but the job execution Reason field was blank or unavailable in the UI.");
             System.out.println("[WARN] Job status is FAILED but Reason could not be captured for " + jobName + ".");
         }
@@ -2150,15 +1958,11 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                     && totalFailureReasonCount(status) < status.getFailedCount();
 
         if (shouldCapturePostingLogs) {
-            // PARTIALLY_SUCCESSFUL is sufficient to trigger receipt-level capture.
-            // Do not gate this path on the optional execution Reason text: client
-            // versions can omit or format that summary differently.
             if (partialPostingFailure) {
                 Map<String, Integer> previouslyCapturedReasons =
                         new LinkedHashMap<>(status.getFailureReasonCounts());
                 status.clearFailureReasons();
                 capturePostingLogFailureReasons(jobName, status);
-                // Keep the receipt-UI reasons if PostingLogs could not provide any.
                 if (totalFailureReasonCount(status) == 0 && !previouslyCapturedReasons.isEmpty()) {
                     previouslyCapturedReasons.forEach(status::addFailureReason);
                 }
@@ -2182,12 +1986,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         waitForJobsPage();
     }
 
-    /**
-     * Reads the latest execution Status and End Date/Time directly from the
-     * jobs list row. The jobs table renders these same columns, so this
-     * fallback uses the same source data as the execution details view and
-     * keeps the report complete when the details view cannot be captured.
-     */
     private boolean readLatestExecutionFromJobRow(WebElement jobRow, JobStatus status) {
         if (jobRow == null) {
             return false;
@@ -2223,9 +2021,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 status.setStatus(rowStatus);
                 captured = true;
             } else if (rowStatus == null && (status.getStatus() == null || status.getStatus().isBlank())) {
-                // The job row exists, but this client exposes no execution status.
-                // Preserve that fact as N/A rather than forcing another failing modal
-                // attempt and eventually producing a misleading monitoring error.
                 status.setStatus("N/A");
                 captured = true;
             }
@@ -2323,19 +2118,32 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         return total;
     }
 
+    private WebElement findPostingLogsAction() {
+        By actionLocator = By.xpath(
+                "//app-job-details//*[self::button or self::a]"
+                + "[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'posting log')]");
+        List<WebElement> actions = driver.findElements(actionLocator);
+        for (WebElement action : actions) {
+            if (isDisplayed(action) && action.isEnabled()) {
+                return action;
+            }
+        }
+        return null;
+    }
+
     private void capturePostingLogFailureReasons(String jobName, JobStatus status) {
         if (!JOB_POST_RECEIPTS.equalsIgnoreCase(jobName)) {
             return;
         }
 
-        WebElement postingLogs = visibleElement(POSTING_LOGS_ACTION);
-        if (postingLogs == null) {
-            status.setJobFailureReason(appendProblem(status.getJobFailureReason(),
-                    "Receipt Posting Failure detected, but PostingLogs action was not available."));
-            return;
-        }
-
         try {
+            WebElement postingLogs = findPostingLogsAction();
+            if (postingLogs == null) {
+                status.setJobFailureReason(appendProblem(status.getJobFailureReason(),
+                        "Receipt Posting Failure detected, but the Posting Logs action was not found in job details."));
+                return;
+            }
+
             scrollIntoView(postingLogs);
             clickAndWait(postingLogs);
             WebElement modal = wait.until(d -> {
@@ -2346,8 +2154,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 return null;
             });
 
-            // Prefer the largest supported page size so a 1,000+ receipt run
-            // does not require hundreds of Selenium page transitions.
             setPostingLogPageSizeTo100();
 
             Map<String, Integer> reasonCounts = new LinkedHashMap<>();
@@ -2449,9 +2255,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             log("Scanned " + pageCount + " posting log page(s), found " + reasonCounts.size() + " unique failure reason(s)");
 
             if (!reasonCounts.isEmpty()) {
-                // Preserve reasons captured from the FAILED receipt UI and use
-                // PostingLogs for partial-success runs whose FAILED filter may
-                // legitimately return no rows for the execution's population.
                 for (Map.Entry<String, Integer> entry : reasonCounts.entrySet()) {
                     status.addFailureReason(entry.getKey(), entry.getValue());
                 }
@@ -2463,10 +2266,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                         && isPartialSuccessStatus(status.getStatus())
                         && postingLogFailures > 0) {
                     status.setFailedCount(postingLogFailures);
-                    // The FAILED receipt grid may be scoped differently from this
-                    // execution's PostingLogs. Once receipt-level failures establish the
-                    // partial run's count, remove the stale zero-vs-one mismatch instead
-                    // of publishing it as a validation problem.
                     status.setValidationMessage(removeReceiptCountMismatch(status.getValidationMessage()));
                 }
             }
@@ -2528,10 +2327,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
     private boolean setPostingLogPageSizeTo100() {
         final int desiredSize = 100;
 
-        // The client uses Angular Material's mat-paginator. The custom-table
-        // component itself has no changePageSize() method, so page-size changes
-        // must be made through the paginator control (or the native select if
-        // a future client build renders one).
         try {
             for (WebElement trigger : driver.findElements(POSTING_LOG_PAGE_SIZE_TRIGGER)) {
                 try {
@@ -2562,7 +2357,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             log("[POSTING LOGS] Material paginator page-size change failed: " + safeText(e));
         }
 
-        // Native-select fallback for compatibility with older/custom client builds.
         try {
             By selectLocator = By.cssSelector(
                     "app-receipt-posting-log mat-paginator select, "
@@ -2769,8 +2563,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 }
             }
 
-            // Use the global container scroller so modal scrolling is
-            // consistent with the jobs list scroller used by all flows.
             scrollContainerToBottom(container == null ? modal : container);
 
             WebElement reason = null;
@@ -2979,10 +2771,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
     }
 
     private void waitForJobsPage() {
-        // Do not call awaitAppBootstrap() here. The user is already authenticated
-        // and this is a route-level recovery wait. Re-running the generic bootstrap
-        // can spend the full boot timeout waiting for a shell condition that is
-        // unrelated to the Jobs route and can leak a misleading BasePage timeout.
         validateSessionAndWindow();
 
         if (!isJobsPageLoaded()) {
@@ -3164,10 +2952,6 @@ private void waitForJobDetailsPage(String jobName) {
     }
 
     private void waitForReceiptResults() {
-        // Receipt pagination changes the paginator model immediately, while the
-        // HTTP response can populate the table a little later. Use a dedicated
-        // bounded wait for this page transition so a transient empty tbody is
-        // never mistaken for a completed page.
         WebDriverWait receiptRenderWait = new WebDriverWait(driver, Duration.ofSeconds(45));
         receiptRenderWait.until(d -> {
             if (isReceiptEmpty()) return true;
@@ -3185,10 +2969,6 @@ private void waitForJobDetailsPage(String jobName) {
             int expectedRows = Math.max(1, end - start + 1);
             int actualRows = visibleReceiptRows().size();
 
-            // A paginator label can update before Angular has rendered the table.
-            // Never treat that transient state as a loaded page: doing so was the
-            // direct cause of the observed "11 - 20 of 51 has no rendered rows"
-            // failure and ultimately produced REASON_NOT_CAPTURED for all receipts.
             return actualRows >= expectedRows;
         });
     }
@@ -3272,8 +3052,6 @@ private void waitForJobDetailsPage(String jobName) {
         for (int attempt = 0; attempt < 2; attempt++) {
             waitForSettledJobRows();
 
-            // Apply the global scroller so the jobs list is scrolled to the
-            // bottom and the Upcoming Demand row and its Status are exposed.
             scrollPageToBottom();
 
             WebElement row = findJobRowOptional(JOB_UPCOMING_DEMAND);
@@ -3303,9 +3081,6 @@ private void waitForJobDetailsPage(String jobName) {
         WebElement row = waitForNavigation("the '" + jobName + "' row on the jobs list",
                 d -> findJobRowOptional(jobName));
         if (row == null) {
-            // Apply the global scroller before scanning further pages so the
-            // jobs list is scrolled to the bottom and every job row (and its
-            // Status) is exposed consistently for all three job flows.
             scrollPageToBottom();
             row = findJobRowAcrossPages(jobName);
         }
@@ -3324,8 +3099,6 @@ private void waitForJobDetailsPage(String jobName) {
 
         validateSessionAndWindow();
 
-        // Scroll to the bottom of the jobs area before paginating so the
-        // full job list and its Status column are exposed.
         scrollPageToBottom();
 
         String startRange = readJobPaginatorRange();
