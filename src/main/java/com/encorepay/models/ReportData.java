@@ -163,7 +163,8 @@ public final class ReportData {
 
             String validation = safe(job.getValidationMessage());
             if (!validation.isBlank()) {
-                if (health.state != ClientState.FAILED) {
+                if (health.state != ClientState.FAILED
+                        && !isUnscopedReceiptCountMismatch(validation)) {
                     health.state = ClientState.ATTENTION;
                 }
                 String detail = "Validation: " + truncate(validation, 140);
@@ -337,6 +338,10 @@ public final class ReportData {
         if (COLLECTIONS.equalsIgnoreCase(safe(jobName))) return "Download Collection Items";
         if (UPCOMING.equalsIgnoreCase(safe(jobName))) return "Upcoming Demand";
         return safe(jobName);
+    }
+
+    private static boolean isUnscopedReceiptCountMismatch(String validation) {
+        return safe(validation).toLowerCase(Locale.ROOT).startsWith("receipt count mismatch:");
     }
 
     private static String conciseMonitoringReason(String reason) {
