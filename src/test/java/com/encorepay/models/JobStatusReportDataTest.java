@@ -108,6 +108,29 @@ public class JobStatusReportDataTest {
     }
 
     @Test
+    public void unscopedReceiptCountMismatchDoesNotCreateFalseClientAttention() {
+        JobStatus post = job("SUCCESS");
+        post.setJobName("Post Receipts Job");
+        post.setFailedCount(0);
+        post.setPendingCount(0);
+        post.setValidationMessage(
+                "Receipt count mismatch: receipt API reports 0 FAILED record(s), "
+                + "while the job execution summary reports 1 FAILED record(s). "
+                + "These counts may cover different receipt populations; "
+                + "the receipt UI/API count is retained as authoritative.");
+
+        ReportData data = ReportData.from(
+                List.of(post),
+                List.of(),
+                List.of("CONATUS"));
+
+        assertEquals(post.getFailedCount(), 0);
+        assertEquals(data.getTotalFailedReceipts(), 0);
+        assertEquals(data.getClientHealth().get("CONATUS").state, ReportData.ClientState.HEALTHY);
+        assertTrue(data.getClientExceptions().stream().noneMatch(x -> x.client.equals("CONATUS")));
+    }
+
+    @Test
     public void clientLevelLoginTimeoutIsNotReportedAsJobFailure() {
         JobStatus syntheticPost = job("N/A");
         syntheticPost.setJobName("Post Receipts Job");
