@@ -27,7 +27,7 @@ public final class JobMonitoringHtmlReport {
     private static final String TITLE_UPCOMING = "3. Upcoming Demand Job";
 
     private static final int[] WIDTHS_POST = {18, 14, 8, 10, 20, 30};
-    private static final int[] WIDTHS_SIMPLE = {28, 14, 24, 34};
+    private static final int[] WIDTHS_SIMPLE = {24, 22, 26, 28};
 
     private JobMonitoringHtmlReport() {}
 
@@ -42,7 +42,7 @@ public final class JobMonitoringHtmlReport {
 
 
         if (!data.getPostReceipts().isEmpty()) {
-            appendPostTable(html, TITLE_POST_RECEIPTS, data.getPostReceipts());
+            appendPostTable(html, TITLE_POST_RECEIPTS, data.getPostReceipts(), data.getFailedReceiptReasonsByClient());
         }
 
         if (!data.getCollectionJobs().isEmpty() && !data.getUpcomingJobs().isEmpty()) {
@@ -96,11 +96,15 @@ public final class JobMonitoringHtmlReport {
                 .append(".other{background:#fff2cc;color:#7f6000;font-weight:bold;text-align:center;white-space:nowrap}")
                 .append(".na{background:#e8eaed;color:#5f6368;font-weight:bold;text-align:center;white-space:nowrap}")
                 .append(".reason-text{color:#9c0006 !important;font-weight:600;word-break:break-word;line-height:1.4;font-size:12px}")
+                .append(".reason-count{font-variant-numeric:tabular-nums;text-align:right;font-weight:600}")
+                .append(".receipt-total{font-weight:700;text-align:right;background:#eaf2f8;color:#003366}")
                 .append(".failure-text{word-break:break-word;line-height:1.4}")
                 .append(".side-by-side-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start;width:100%;margin-bottom:10px}")
                 .append(".side-by-side-col{min-width:0;width:auto}")
                 .append(".side-by-side-col section{width:100%;min-width:0}")
                 .append(".side-by-side-col table{width:100%;min-width:0}")
+                .append(".side-by-side-col td.success,.side-by-side-col td.completed,.side-by-side-col td.failed,.side-by-side-col td.partial,.side-by-side-col td.other,.side-by-side-col td.na{white-space:normal;overflow-wrap:anywhere;font-size:12px;padding:7px 4px}")
+                .append(".side-by-side-col td:nth-child(3){font-size:12px;line-height:1.35}")
                 .append(".summary-box{margin:20px 0;padding:16px;background:#f8f9fa;border:1px solid #d0d7de;border-radius:6px}")
                 .append("@media (max-width:850px){.side-by-side-row{grid-template-columns:minmax(0,1fr);gap:0}.side-by-side-col{width:100%}}")
                 .append("</style></head><body>")
@@ -143,7 +147,7 @@ public final class JobMonitoringHtmlReport {
         return " <a href='" + url + "' target='_blank' style='color:#003366; text-decoration:underline; font-size:12px;'>[Download Report Artifacts]</a>";
     }
 
-    private static void appendPostTable(StringBuilder html, String title, List<JobStatus> statuses) {
+    private static void appendPostTable(StringBuilder html, String title, List<JobStatus> statuses, Map<String, Map<String, Integer>> reasonsByClient) {
         html.append("<section><h2>").append(escape(title)).append("</h2>")
                 .append("<table><colgroup>");
         for (int width : WIDTHS_POST) {
@@ -160,6 +164,17 @@ public final class JobMonitoringHtmlReport {
 
         for (JobStatus status : statuses) {
             String reason = failureReason(status);
+            if (status.getJobName() != null && POST_RECEIPTS.equalsIgnoreCase(status.getJobName())) {
+                Map<String, Integer> grouped = reasonsByClient.get(status.getClientName());
+                if (grouped != null && !grouped.isEmpty()) {
+                    reason = grouped.entrySet().stream()
+                            .filter(e -> e.getKey() != null && e.getValue() != null && e.getValue() > 0)
+                            .sorted(Map.Entry.<String, Integer>comparingByValue().reversed()
+                                    .thenComparing(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER)))
+                            .map(e -> e.getKey() + " (" + e.getValue() + ")")
+                            .reduce((a, b) -> a + "; " + b).orElse(reason);
+                }
+            }
             html.append("<tr>")
                     .append("<td class='text-left client-col'>").append(escape(status.getClientName())).append("</td>")
                     .append("<td class='").append(statusClass(status.getStatus())).append("'>").append(escape(status.getStatus())).append("</td>")
@@ -213,8 +228,8 @@ public final class JobMonitoringHtmlReport {
     private static void appendRunFailures(StringBuilder html, List<ReportData.ClientException> exceptions) {
         if (exceptions.isEmpty()) return;
 
-        // Same information hierarchy as the Google Chat report: every client
-        // that is not healthy is listed with its state and capture notes.
+        
+        
         html.append("<section><h2>Clients Requiring Attention</h2>")
                 .append("<table><thead><tr><th>Client</th><th>Status</th><th>Reason</th></tr></thead><tbody>");
 
