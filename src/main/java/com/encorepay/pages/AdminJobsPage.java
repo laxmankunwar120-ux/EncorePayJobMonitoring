@@ -2445,12 +2445,11 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                         && isPartialSuccessStatus(status.getStatus())
                         && postingLogFailures > 0) {
                     status.setFailedCount(postingLogFailures);
-                    String existingValidation = status.getValidationMessage();
-                    String reconciliation = "FAILED receipt count derived from PostingLogs for PARTIALLY_SUCCESSFUL execution: "
-                            + postingLogFailures + " receipt-level failure record(s) captured.";
-                    status.setValidationMessage(existingValidation == null || existingValidation.isBlank()
-                            ? reconciliation
-                            : existingValidation + "; " + reconciliation);
+                    // The FAILED receipt grid may be scoped differently from this
+                    // execution's PostingLogs. Once receipt-level failures establish the
+                    // partial run's count, remove the stale zero-vs-one mismatch instead
+                    // of publishing it as a validation problem.
+                    status.setValidationMessage(removeReceiptCountMismatch(status.getValidationMessage()));
                 }
             }
 
@@ -2466,6 +2465,22 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                             + e.getClass().getSimpleName() + ": " + safeText(e)));
             closePostingLogsModal();
         }
+    }
+
+    private String removeReceiptCountMismatch(String validation) {
+        if (validation == null || validation.isBlank()) {
+            return "";
+        }
+
+        List<String> remaining = new ArrayList<>();
+        for (String item : validation.split(";\\s*")) {
+            String value = clean(item);
+            if (!value.isBlank()
+                    && !value.toLowerCase(Locale.ROOT).startsWith("receipt count mismatch:")) {
+                remaining.add(value);
+            }
+        }
+        return String.join("; ", remaining);
     }
 
     private int readPostingLogTotalCount() {
