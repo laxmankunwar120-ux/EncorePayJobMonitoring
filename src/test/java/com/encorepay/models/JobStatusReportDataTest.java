@@ -108,6 +108,28 @@ public class JobStatusReportDataTest {
     }
 
     @Test
+    public void partiallySuccessfulPostReceiptsReportsPostingLogFailureReasons() {
+        JobStatus post = job("PARTIALLY_SUCCESSFUL");
+        post.setJobName("Post Receipts Job");
+        post.setFailedCount(2);
+        post.setPendingCount(0);
+        post.addFailureReason("Connection refused", 1);
+        post.addFailureReason("500 Internal Server Error", 1);
+
+        ReportData data = ReportData.from(
+                List.of(post),
+                List.of(),
+                List.of("CONATUS"));
+
+        assertEquals(data.getTotalFailedReceipts(), 2);
+        assertEquals(data.getFailedReceiptReasonsByClient().get("CONATUS")
+                .get("Connection refused").intValue(), 1);
+        assertEquals(data.getFailedReceiptReasonsByClient().get("CONATUS")
+                .get("500 Internal Server Error").intValue(), 1);
+        assertEquals(data.getClientHealth().get("CONATUS").state, ReportData.ClientState.ATTENTION);
+    }
+
+    @Test
     public void unscopedReceiptCountMismatchDoesNotCreateFalseClientAttention() {
         JobStatus post = job("SUCCESS");
         post.setJobName("Post Receipts Job");
