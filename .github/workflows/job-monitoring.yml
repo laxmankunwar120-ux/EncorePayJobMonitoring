@@ -122,3 +122,12 @@ jobs:
 
       - name: Run job monitoring
         run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=90 -DbootTimeout=300 -DpageLoadTimeout=120 -DbusinessZone=Asia/Kolkata
+
+      - name: Upload HTML monitoring report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: encorepay-html-report
+          path: test-output/report/*.html
+          if-no-files-found: warn
+          retention-days: 14
