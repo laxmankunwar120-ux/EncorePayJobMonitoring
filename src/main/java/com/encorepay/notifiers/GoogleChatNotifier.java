@@ -133,7 +133,9 @@ private static void appendSummary(StringBuilder message, ReportData data) {
                     failedJobs++;
                     break;
                 case "PARTIAL":
+                case "PARTIAL_SUCCESS":
                 case "PARTIAL SUCCESS":
+                case "PARTIALLY_SUCCESSFUL":
                 case "PARTIALLY SUCCESSFUL":
                     partialJobs++;
                     break;
