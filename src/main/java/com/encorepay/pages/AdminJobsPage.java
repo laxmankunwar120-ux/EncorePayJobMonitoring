@@ -2071,7 +2071,12 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
     }
 
     private boolean isPartialSuccessStatus(String status) {
-        return status != null && status.trim().equalsIgnoreCase("PARTIALLY_SUCCESSFUL");
+        if (status == null) {
+            return false;
+        }
+        String normalized = status.trim().replaceAll("[\\s-]+", "_").toUpperCase(Locale.ROOT);
+        return normalized.contains("PARTIALLY_SUCCESSFUL")
+                || normalized.contains("PARTIAL_SUCCESS");
     }
 
     private boolean normalizeReceiptPostingSummary(String reason, JobStatus status) {
@@ -2120,12 +2125,15 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
 
     private WebElement findPostingLogsAction() {
         By actionLocator = By.xpath(
-                "//app-job-details//*[self::button or self::a]"
+                "//*[self::button or self::a or @role='button']"
                 + "[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'posting log')]");
         List<WebElement> actions = driver.findElements(actionLocator);
         for (WebElement action : actions) {
-            if (isDisplayed(action) && action.isEnabled()) {
-                return action;
+            try {
+                if (isDisplayed(action) && action.isEnabled()) {
+                    return action;
+                }
+            } catch (StaleElementReferenceException ignored) {
             }
         }
         return null;
@@ -2145,7 +2153,17 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             }
 
             scrollIntoView(postingLogs);
-            clickAndWait(postingLogs);
+            try {
+                clickAndWait(postingLogs);
+            } catch (RuntimeException clickFailure) {
+                WebElement refreshedAction = findPostingLogsAction();
+                if (refreshedAction == null) {
+                    throw new IllegalStateException("Posting Logs action disappeared before it could be clicked.", clickFailure);
+                }
+                ((JavascriptExecutor) driver).executeScript("arguments[0].click();", refreshedAction);
+            }
+            log("[POSTING LOGS] Opened Posting Logs for " + status.getStatus()
+                    + " Post Receipts execution.");
             WebElement modal = wait.until(d -> {
                 List<WebElement> modals = d.findElements(POSTING_LOGS_MODAL);
                 for (int i = modals.size() - 1; i >= 0; i--) {
