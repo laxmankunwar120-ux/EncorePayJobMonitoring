@@ -2352,7 +2352,8 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
 
             Map<String, Integer> reasonCounts = new LinkedHashMap<>();
             Set<String> pages = new LinkedHashSet<>();
-            Set<String> seenRowSignatures = new LinkedHashSet<>();
+            Set<String> seenReceiptNumbers = new LinkedHashSet<>();
+            Set<String> seenFallbackRows = new LinkedHashSet<>();
             int pageCount = 0;
             int expectedTotal = readPostingLogTotalCount();
             int pageSize = readCurrentPostingLogPageSize();
@@ -2382,26 +2383,47 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 for (WebElement row : rows) {
                     if (!isDisplayed(row)) continue;
                     List<WebElement> cells = row.findElements(By.xpath("./td"));
-                    if (cells.size() < 7) continue;
+                    // The client-side ReceiptPostingLog table defines eight columns:
+                    // Receipt No., Account Id, Value Date, Receipt Date, Posting Job ID,
+                    // Status, LMS Posting Failure Reason, and Failure Code.
+                    if (cells.size() < 8) continue;
 
+                    String receiptNumber = clean(cells.get(0).getText());
                     String receiptStatus = clean(cells.get(5).getText());
                     String reason = clean(cells.get(6).getText());
-                    String failureCode = cells.size() > 7 ? clean(cells.get(7).getText()) : "";
+                    String failureCode = clean(cells.get(7).getText());
+                    boolean partialExecution = isPartialSuccessStatus(status.getStatus());
+                    String normalizedStatus = receiptStatus.toUpperCase(Locale.ROOT);
+                    boolean failedStatus = normalizedStatus.contains("FAIL");
+                    boolean successStatus = normalizedStatus.contains("SUCCESS")
+                            || normalizedStatus.contains("COMPLETED");
+                    boolean hasFailureDetails = !reason.isBlank() || !failureCode.isBlank();
 
-                    String rowSignature = buildRowSignature(range, row, 0);
-                    if (!seenRowSignatures.add(rowSignature)) {
+                    // For partial executions, only count rows explicitly marked FAILED,
+                    // or rows whose status is unavailable but which contain failure data.
+                    // Do not count successful posting-log rows just because the overall
+                    // execution was PARTIALLY_SUCCESSFUL.
+                    boolean captureFailure = partialExecution
+                            ? failedStatus || receiptStatus.isBlank() && hasFailureDetails
+                            : !reason.isBlank() && (receiptStatus.isBlank() || failedStatus
+                                    || !failureCode.isBlank() && !successStatus);
+                    if (!captureFailure || !hasFailureDetails) continue;
+
+                    String fallbackSignature = buildRowSignature("", row, 0);
+                    if (!receiptNumber.isBlank()) {
+                        if (!seenReceiptNumbers.add(receiptNumber)) continue;
+                    } else if (!seenFallbackRows.add(fallbackSignature)) {
                         continue;
                     }
 
-                    boolean partialExecution = isPartialSuccessStatus(status.getStatus());
-                    if (!reason.isBlank() && (partialExecution || receiptStatus.isBlank()
-                            || receiptStatus.toUpperCase(Locale.ROOT).contains("FAIL")
-                            || failureCode.length() > 0)) {
-                        String normalizedReason = trimReason(
-                                failureCode.isBlank() ? reason : reason + " | Failure Code: " + failureCode);
-                        reasonCounts.merge(normalizedReason, 1, Integer::sum);
-                        foundReason = true;
-                    }
+                    String normalizedReason = trimReason(
+                            reason.isBlank()
+                                    ? "Failure Code: " + failureCode
+                                    : failureCode.isBlank()
+                                            ? reason
+                                            : reason + " | Failure Code: " + failureCode);
+                    reasonCounts.merge(normalizedReason, 1, Integer::sum);
+                    foundReason = true;
                 }
 
                 if (!foundReason && rows.isEmpty()) {
@@ -2424,6 +2446,9 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                         return !after.isBlank() && !after.equals(before);
                     });
                 } catch (RuntimeException e) {
+                    status.setJobFailureReason(appendProblem(status.getJobFailureReason(),
+                            "PostingLogs pagination stopped before the next page was confirmed after range "
+                                    + before + ". Captured failure reasons may be incomplete."));
                     break;
                 }
             }
