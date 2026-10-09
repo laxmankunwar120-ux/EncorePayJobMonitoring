@@ -132,21 +132,21 @@ private static void appendSummary(StringBuilder message, ReportData data) {
         }
     }
 
-    message.append("*OVERALL JOB SUMMARY*").append('\\n');
+    message.append("*OVERALL JOB SUMMARY*").append('\n');
     message.append("Total Jobs                 : ")
-            .append(totalJobs).append('\\n');
+            .append(totalJobs).append('\n');
     message.append("Successful Jobs            : ")
-            .append(totalSuccessfulJobs).append('\\n');
+            .append(totalSuccessfulJobs).append('\n');
     message.append("Partially Successful Jobs  : ")
-            .append(totalPartialJobs).append('\\n');
+            .append(totalPartialJobs).append('\n');
     message.append("Failed Jobs                : ")
-            .append(totalFailedJobs).append('\\n');
+            .append(totalFailedJobs).append('\n');
     message.append("Other / Unavailable Status : ")
-            .append(totalOtherJobs).append('\\n');
+            .append(totalOtherJobs).append('\n');
     message.append("Total Failed Receipts      : ")
-            .append(overallFailedReceipts).append('\\n');
+            .append(overallFailedReceipts).append('\n');
     message.append("Total Pending Receipts     : ")
-            .append(overallPendingReceipts).append("\\n\\n");
+            .append(overallPendingReceipts).append("\n\n");
 
     Map<String, List<JobStatus>> jobsByClient = new java.util.LinkedHashMap<>();
     for (String configuredClient : data.getConfiguredClients()) {
