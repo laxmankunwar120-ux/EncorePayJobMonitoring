@@ -2284,11 +2284,13 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 + failed + " as the fallback."
             );
         } else if (failed != status.getFailedCount()) {
-            status.setValidationMessage(
-                "Receipt count mismatch: receipt API reports " + status.getFailedCount()
-                + " FAILED record(s), while the job execution summary reports " + failed
-                + " FAILED record(s). The receipt API count is retained as authoritative."
-            );
+            String mismatch = "Receipt count mismatch: receipt API reports " + status.getFailedCount()
+                    + " FAILED record(s), while the job execution summary reports " + failed
+                    + " FAILED record(s). These counts may cover different receipt populations; "
+                    + "the receipt UI/API count is retained as authoritative.";
+            status.setValidationMessage(mismatch);
+            System.out.println("[RECEIPT RECONCILIATION] " + status.getClientName()
+                    + ": " + mismatch);
         }
 
         System.out.println("[RECEIPT OUTCOME] Receipt Posting Failure summary detected: "
