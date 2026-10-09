@@ -1958,6 +1958,9 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                     && totalFailureReasonCount(status) < status.getFailedCount();
 
         if (shouldCapturePostingLogs) {
+            log("[POSTING LOGS] Capture requested: status=" + executionStatus
+                    + ", failedCount=" + status.getFailedCount()
+                    + ", expectedFailureReasons=" + (receiptPostingFailure ? status.getFailedCount() : "status-triggered"));
             if (partialPostingFailure) {
                 Map<String, Integer> previouslyCapturedReasons =
                         new LinkedHashMap<>(status.getFailureReasonCounts());
@@ -2091,7 +2094,12 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         int partial = Integer.parseInt(matcher.group(3));
         int failed = Integer.parseInt(matcher.group(4));
 
-        if (status.getFailedCount() == UNKNOWN_COUNT) {
+        if (isPartialSuccessStatus(status.getStatus())) {
+            status.setFailedCount(failed);
+            status.setValidationMessage(removeReceiptCountMismatch(status.getValidationMessage()));
+            log("[RECEIPT RECONCILIATION] PARTIALLY_SUCCESSFUL execution reports "
+                    + failed + " failed receipt(s); using this count to validate PostingLogs capture.");
+        } else if (status.getFailedCount() == UNKNOWN_COUNT) {
             status.setFailedCount(failed);
             status.setValidationMessage(
                 "FAILED receipt search count was unavailable; using the job execution summary count of "
@@ -2103,8 +2111,7 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                     + " FAILED record(s). These counts may cover different receipt populations; "
                     + "the receipt UI/API count is retained as authoritative.";
             status.setValidationMessage(mismatch);
-            System.out.println("[RECEIPT RECONCILIATION] " + status.getClientName()
-                    + ": " + mismatch);
+            log("[RECEIPT RECONCILIATION] " + status.getClientName() + ": " + mismatch);
         }
 
         System.out.println("[RECEIPT OUTCOME] Receipt Posting Failure summary detected: "
@@ -2113,6 +2120,15 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 + ". Receipt UI remains authoritative for receipt counts and reasons.");
 
         return failed > 0;
+    }
+
+    private String removeReceiptCountMismatch(String validation) {
+        if (validation == null || validation.isBlank()) {
+            return "";
+        }
+        return Arrays.stream(validation.split(";\\s*"))
+                .filter(message -> !message.toLowerCase(Locale.ROOT).startsWith("receipt count mismatch:"))
+                .collect(Collectors.joining("; "));
     }
 
     private int totalFailureReasonCount(JobStatus status) {
