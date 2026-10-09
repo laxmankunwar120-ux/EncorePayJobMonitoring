@@ -2574,51 +2574,46 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
 
     private void scrollExecutionModalToBottom(WebElement modal) {
         try {
-            WebElement container = null;
-            long largestScrollableArea = -1;
-
-            List<WebElement> candidates = new ArrayList<>();
-            candidates.add(modal);
-            candidates.addAll(modal.findElements(By.cssSelector(".absolute.overflow-auto, .overflow-auto, [style*='overflow']")));
-
-            for (WebElement candidate : candidates) {
-                try {
-                    if (!isDisplayed(candidate)) continue;
-                    long scrollHeight = ((Number) ((JavascriptExecutor) driver).executeScript(
-                            "return arguments[0].scrollHeight;", candidate)).longValue();
-                    long clientHeight = ((Number) ((JavascriptExecutor) driver).executeScript(
-                            "return arguments[0].clientHeight;", candidate)).longValue();
-                    long scrollable = scrollHeight - clientHeight;
-                    if (scrollable > largestScrollableArea) {
-                        largestScrollableArea = scrollable;
-                        container = candidate;
-                    }
-                } catch (Exception ignored) {
+            JavascriptExecutor js = (JavascriptExecutor) driver;
+            js.executeScript(
+                    "const root = arguments[0];"
+                    + "const nodes = [root, ...root.querySelectorAll('*')];"
+                    + "for (const el of nodes) {"
+                    + "const style = getComputedStyle(el);"
+                    + "if (el.scrollHeight > el.clientHeight + 2 && "
+                    + "(style.overflowY === 'auto' || style.overflowY === 'scroll' || el === root)) {"
+                    + "el.scrollTop = el.scrollHeight;"
+                    + "}"
+                    + "}"
+                    + "root.querySelectorAll('*').forEach(el => {"
+                    + "if (el.scrollHeight > el.clientHeight + 2) el.scrollTop = el.scrollHeight;"
+                    + "});",
+                    modal);
+            wait.until(d -> {
+                Object result = js.executeScript(
+                        "const root = arguments[0];"
+                        + "const nodes = [root, ...root.querySelectorAll('*')];"
+                        + "return nodes.filter(el => el.scrollHeight > el.clientHeight + 2)"
+                        + ".every(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 3);",
+                        modal);
+                return Boolean.TRUE.equals(result);
+            });
+            WebElement reasonLabel = null;
+            for (WebElement label : modal.findElements(By.xpath(
+                    ".//div[contains(@class,'list-label') and normalize-space()='Reason']"))) {
+                if (isDisplayed(label)) {
+                    reasonLabel = label;
+                    break;
                 }
             }
-
-            scrollContainerToBottom(container == null ? modal : container);
-
-            WebElement reason = null;
-            List<WebElement> labels = modal.findElements(By.xpath(
-                    ".//div[contains(@class,'list-label') and (normalize-space()='Reason' or "
-                    + "normalize-space()='End Date' or normalize-space()='End Time')]"));
-            for (WebElement label : labels) {
-                try {
-                    if ("Reason".equalsIgnoreCase(clean(label.getText()))) {
-                        reason = label;
-                        break;
-                    }
-                } catch (Exception ignored) {
-                }
+            if (reasonLabel != null) {
+                js.executeScript(
+                        "arguments[0].scrollIntoView({block:'end', inline:'nearest', behavior:'instant'});",
+                        reasonLabel);
             }
-            if (reason != null) {
-                ((JavascriptExecutor) driver).executeScript(
-                        "arguments[0].scrollIntoView({block:'center', inline:'nearest', behavior:'smooth'});", reason);
-                awaitUiStability();
-            }
+            log("[EXECUTION MODAL] Scrolled modal content to the bottom.");
         } catch (Exception e) {
-            System.out.println("[WARN] Could not scroll execution View modal: " + safeText(e));
+            log("[WARN] Could not scroll execution modal to the bottom: " + safeText(e));
         }
     }
 
