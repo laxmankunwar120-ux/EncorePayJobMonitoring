@@ -37,6 +37,21 @@ public class JobStatus {
         this.dateTime = dateTime;
     }
 
+    public JobStatus copy() {
+        JobStatus copy = new JobStatus();
+        copy.jobName = this.jobName;
+        copy.clientName = this.clientName;
+        copy.status = this.status;
+        copy.failedCount = this.failedCount;
+        copy.pendingCount = this.pendingCount;
+        copy.dateTime = this.dateTime;
+        copy.jobFailureReason = this.jobFailureReason;
+        copy.validationMessage = this.validationMessage;
+        copy.synthetic = this.synthetic;
+        copy.failureReasonCounts.putAll(this.failureReasonCounts);
+        return copy;
+    }
+
     public String getJobName() { return jobName; }
     public void setJobName(String jobName) { this.jobName = jobName; }
     public String getClientName() { return clientName; }
