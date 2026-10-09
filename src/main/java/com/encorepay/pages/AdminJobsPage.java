@@ -2144,16 +2144,25 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         closeExecutionModalUsingUi();
 
         boolean partialPostingFailure = JOB_POST_RECEIPTS.equalsIgnoreCase(jobName)
-                && partialReceiptOutcome && receiptPostingFailure;
+                && partialReceiptOutcome;
+        boolean shouldCapturePostingLogs = partialPostingFailure
+                || receiptPostingFailure && status.getFailedCount() > 0
+                    && totalFailureReasonCount(status) < status.getFailedCount();
 
-        if (receiptPostingFailure
-                && (status.getFailedCount() > 0 || partialPostingFailure)
-                && (totalFailureReasonCount(status) < status.getFailedCount()
-                    || partialPostingFailure && totalFailureReasonCount(status) == 0)) {
-            // Partial-success posting runs must inspect PostingLogs even when
-            // the current FAILED receipt filter returns zero rows. That filter
-            // can be scoped differently from the execution's posting summary.
-            if (totalFailureReasonCount(status) == 0) {
+        if (shouldCapturePostingLogs) {
+            // PARTIALLY_SUCCESSFUL is sufficient to trigger receipt-level capture.
+            // Do not gate this path on the optional execution Reason text: client
+            // versions can omit or format that summary differently.
+            if (partialPostingFailure) {
+                Map<String, Integer> previouslyCapturedReasons =
+                        new LinkedHashMap<>(status.getFailureReasonCounts());
+                status.clearFailureReasons();
+                capturePostingLogFailureReasons(jobName, status);
+                // Keep the receipt-UI reasons if PostingLogs could not provide any.
+                if (totalFailureReasonCount(status) == 0 && !previouslyCapturedReasons.isEmpty()) {
+                    previouslyCapturedReasons.forEach(status::addFailureReason);
+                }
+            } else {
                 capturePostingLogFailureReasons(jobName, status);
             }
 
@@ -2384,7 +2393,8 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                         continue;
                     }
 
-                    if (!reason.isBlank() && (receiptStatus.isBlank()
+                    boolean partialExecution = isPartialSuccessStatus(status.getStatus());
+                    if (!reason.isBlank() && (partialExecution || receiptStatus.isBlank()
                             || receiptStatus.toUpperCase(Locale.ROOT).contains("FAIL")
                             || failureCode.length() > 0)) {
                         String normalizedReason = trimReason(
