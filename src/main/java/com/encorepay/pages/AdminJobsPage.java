@@ -2121,15 +2121,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         return failed > 0;
     }
 
-    private String removeReceiptCountMismatch(String validation) {
-        if (validation == null || validation.isBlank()) {
-            return "";
-        }
-        return Arrays.stream(validation.split(";\\s*"))
-                .filter(message -> !message.toLowerCase(Locale.ROOT).startsWith("receipt count mismatch:"))
-                .collect(Collectors.joining("; "));
-    }
-
     private int totalFailureReasonCount(JobStatus status) {
         int total = 0;
         for (Integer count : status.getFailureReasonCounts().values()) {
