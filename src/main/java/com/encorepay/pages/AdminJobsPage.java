@@ -2584,19 +2584,22 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                     + "el.scrollTop = el.scrollHeight;"
                     + "}"
                     + "}"
-                    + "root.querySelectorAll('*').forEach(el => {"
-                    + "if (el.scrollHeight > el.clientHeight + 2) el.scrollTop = el.scrollHeight;"
-                    + "});",
+                    + "const reason = [...root.querySelectorAll('.list-label')]"
+                    + ".find(el => el.textContent.trim() === 'Reason');"
+                    + "if (reason) {"
+                    + "let parent = reason.parentElement;"
+                    + "while (parent && parent !== root) {"
+                    + "const style = getComputedStyle(parent);"
+                    + "if (parent.scrollHeight > parent.clientHeight + 2 && "
+                    + "(style.overflowY === 'auto' || style.overflowY === 'scroll')) {"
+                    + "parent.scrollTop = Math.min(parent.scrollHeight, "
+                    + "Math.max(0, reason.offsetTop - parent.offsetTop));"
+                    + "}"
+                    + "parent = parent.parentElement;"
+                    + "}"
+                    + "reason.scrollIntoView({block:'center', inline:'nearest', behavior:'instant'});"
+                    + "}",
                     modal);
-            wait.until(d -> {
-                Object result = js.executeScript(
-                        "const root = arguments[0];"
-                        + "const nodes = [root, ...root.querySelectorAll('*')];"
-                        + "return nodes.filter(el => el.scrollHeight > el.clientHeight + 2)"
-                        + ".every(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 3);",
-                        modal);
-                return Boolean.TRUE.equals(result);
-            });
             WebElement reasonLabel = null;
             for (WebElement label : modal.findElements(By.xpath(
                     ".//div[contains(@class,'list-label') and normalize-space()='Reason']"))) {
@@ -2607,12 +2610,12 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             }
             if (reasonLabel != null) {
                 js.executeScript(
-                        "arguments[0].scrollIntoView({block:'end', inline:'nearest', behavior:'instant'});",
+                        "arguments[0].scrollIntoView({block:'center', inline:'nearest', behavior:'instant'});",
                         reasonLabel);
             }
-            log("[EXECUTION MODAL] Scrolled modal content to the bottom.");
+            log("[EXECUTION MODAL] Scrolled execution details to the Reason field.");
         } catch (Exception e) {
-            log("[WARN] Could not scroll execution modal to the bottom: " + safeText(e));
+            log("[WARN] Could not scroll execution modal to the Reason field: " + safeText(e));
         }
     }
 
