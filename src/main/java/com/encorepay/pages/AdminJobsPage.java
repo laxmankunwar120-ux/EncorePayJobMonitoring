@@ -2576,46 +2576,45 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             JavascriptExecutor js = (JavascriptExecutor) driver;
             js.executeScript(
                     "const root = arguments[0];"
-                    + "const nodes = [root, ...root.querySelectorAll('*')];"
-                    + "for (const el of nodes) {"
-                    + "const style = getComputedStyle(el);"
-                    + "if (el.scrollHeight > el.clientHeight + 2 && "
-                    + "(style.overflowY === 'auto' || style.overflowY === 'scroll' || el === root)) {"
-                    + "el.scrollTop = el.scrollHeight;"
-                    + "}"
-                    + "}"
                     + "const reason = [...root.querySelectorAll('.list-label')]"
                     + ".find(el => el.textContent.trim() === 'Reason');"
+                    + "const scrollables = el => {"
+                    + "const style = getComputedStyle(el);"
+                    + "return el.scrollHeight > el.clientHeight + 2 && "
+                    + "(el === root || /(auto|scroll|overlay)/.test(style.overflowY));"
+                    + "};"
                     + "if (reason) {"
-                    + "let parent = reason.parentElement;"
-                    + "while (parent && parent !== root) {"
-                    + "const style = getComputedStyle(parent);"
-                    + "if (parent.scrollHeight > parent.clientHeight + 2 && "
-                    + "(style.overflowY === 'auto' || style.overflowY === 'scroll')) {"
-                    + "parent.scrollTop = Math.min(parent.scrollHeight, "
-                    + "Math.max(0, reason.offsetTop - parent.offsetTop));"
+                    + "let node = reason;"
+                    + "while (node && node !== root.parentElement) {"
+                    + "if (scrollables(node)) {"
+                    + "const box = node.getBoundingClientRect();"
+                    + "const target = reason.getBoundingClientRect();"
+                    + "if (target.bottom > box.bottom - 12) node.scrollTop += target.bottom - box.bottom + 24;"
+                    + "if (target.top < box.top + 12) node.scrollTop -= box.top - target.top + 24;"
                     + "}"
-                    + "parent = parent.parentElement;"
+                    + "node = node.parentElement;"
                     + "}"
                     + "reason.scrollIntoView({block:'center', inline:'nearest', behavior:'instant'});"
+                    + "} else {"
+                    + "const nodes = [root, ...root.querySelectorAll('*')];"
+                    + "for (const el of nodes) if (scrollables(el)) el.scrollTop = el.scrollHeight;"
+                    + "}"
                     + "}",
                     modal);
-            WebElement reasonLabel = null;
-            for (WebElement label : modal.findElements(By.xpath(
-                    ".//div[contains(@class,'list-label') and normalize-space()='Reason']"))) {
+            List<WebElement> reasonLabels = modal.findElements(By.xpath(
+                    ".//div[contains(@class,'list-label') and normalize-space()='Reason']"));
+            for (WebElement label : reasonLabels) {
                 if (isDisplayed(label)) {
-                    reasonLabel = label;
-                    break;
+                    js.executeScript(
+                            "arguments[0].scrollIntoView({block:'center', inline:'nearest', behavior:'instant'});",
+                            label);
+                    log("[EXECUTION MODAL] Scrolled the job details panel to the Reason field.");
+                    return;
                 }
             }
-            if (reasonLabel != null) {
-                js.executeScript(
-                        "arguments[0].scrollIntoView({block:'center', inline:'nearest', behavior:'instant'});",
-                        reasonLabel);
-            }
-            log("[EXECUTION MODAL] Scrolled execution details to the Reason field.");
+            log("[WARN] Reason label was not found in the execution modal.");
         } catch (Exception e) {
-            log("[WARN] Could not scroll execution modal to the Reason field: " + safeText(e));
+            log("[WARN] Could not scroll the job details panel to the Reason field: " + safeText(e));
         }
     }
 
