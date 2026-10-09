@@ -2143,18 +2143,23 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
 
         closeExecutionModalUsingUi();
 
-        if (receiptPostingFailure && status.getFailedCount() > 0
-                && totalFailureReasonCount(status) < status.getFailedCount()) {
-            // The receipt UI is the single source of truth. PostingLogs is only
-            // used as a last resort when nothing at all was captured from the
-            // FAILED receipt UI, so a reason can never be double-counted or
-            // attributed to a receipt that was never captured in the UI.
+        boolean partialPostingFailure = JOB_POST_RECEIPTS.equalsIgnoreCase(jobName)
+                && partialReceiptOutcome && receiptPostingFailure;
+
+        if (receiptPostingFailure
+                && (status.getFailedCount() > 0 || partialPostingFailure)
+                && (totalFailureReasonCount(status) < status.getFailedCount()
+                    || partialPostingFailure && totalFailureReasonCount(status) == 0)) {
+            // Partial-success posting runs must inspect PostingLogs even when
+            // the current FAILED receipt filter returns zero rows. That filter
+            // can be scoped differently from the execution's posting summary.
             if (totalFailureReasonCount(status) == 0) {
                 capturePostingLogFailureReasons(jobName, status);
             }
 
-            if (totalFailureReasonCount(status) < status.getFailedCount()) {
-                String gapMessage = "Receipt UI capture incomplete: captured "
+            if (status.getFailedCount() > 0
+                    && totalFailureReasonCount(status) < status.getFailedCount()) {
+                String gapMessage = "Receipt UI/PostingLogs capture incomplete: captured "
                         + totalFailureReasonCount(status) + " of " + status.getFailedCount()
                         + " FAILED receipts.";
                 String existing = status.getValidationMessage();
@@ -2416,10 +2421,26 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             log("Scanned " + pageCount + " posting log page(s), found " + reasonCounts.size() + " unique failure reason(s)");
 
             if (!reasonCounts.isEmpty()) {
-                // PostingLogs is only a gap-filler. Preserve every reason already
-                // captured row-by-row from the FAILED receipts page.
+                // Preserve reasons captured from the FAILED receipt UI and use
+                // PostingLogs for partial-success runs whose FAILED filter may
+                // legitimately return no rows for the execution's population.
                 for (Map.Entry<String, Integer> entry : reasonCounts.entrySet()) {
                     status.addFailureReason(entry.getKey(), entry.getValue());
+                }
+
+                int postingLogFailures = reasonCounts.values().stream()
+                        .mapToInt(Integer::intValue)
+                        .sum();
+                if (status.getFailedCount() == 0
+                        && isPartialSuccessStatus(status.getStatus())
+                        && postingLogFailures > 0) {
+                    status.setFailedCount(postingLogFailures);
+                    String existingValidation = status.getValidationMessage();
+                    String reconciliation = "FAILED receipt count derived from PostingLogs for PARTIALLY_SUCCESSFUL execution: "
+                            + postingLogFailures + " receipt-level failure record(s) captured.";
+                    status.setValidationMessage(existingValidation == null || existingValidation.isBlank()
+                            ? reconciliation
+                            : existingValidation + "; " + reconciliation);
                 }
             }
 
