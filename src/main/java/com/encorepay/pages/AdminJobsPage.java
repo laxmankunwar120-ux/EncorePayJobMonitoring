@@ -2383,9 +2383,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 for (WebElement row : rows) {
                     if (!isDisplayed(row)) continue;
                     List<WebElement> cells = row.findElements(By.xpath("./td"));
-                    // The client-side ReceiptPostingLog table defines eight columns:
-                    // Receipt No., Account Id, Value Date, Receipt Date, Posting Job ID,
-                    // Status, LMS Posting Failure Reason, and Failure Code.
                     if (cells.size() < 8) continue;
 
                     String receiptNumber = clean(cells.get(0).getText());
@@ -2399,10 +2396,6 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                             || normalizedStatus.contains("COMPLETED");
                     boolean hasFailureDetails = !reason.isBlank() || !failureCode.isBlank();
 
-                    // For partial executions, only count rows explicitly marked FAILED,
-                    // or rows whose status is unavailable but which contain failure data.
-                    // Do not count successful posting-log rows just because the overall
-                    // execution was PARTIALLY_SUCCESSFUL.
                     boolean captureFailure = partialExecution
                             ? failedStatus || receiptStatus.isBlank() && hasFailureDetails
                             : !reason.isBlank() && (receiptStatus.isBlank() || failedStatus
