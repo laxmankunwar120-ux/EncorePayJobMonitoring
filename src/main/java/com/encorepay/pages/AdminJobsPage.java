@@ -147,7 +147,7 @@ public class AdminJobsPage extends BasePage {
             "//app-job-details//button[normalize-space()='Posting Logs' or normalize-space()='PostingLogs']"
             + " | //app-job-details//a[normalize-space()='Posting Logs' or normalize-space()='PostingLogs']");
     private static final By POSTING_LOGS_MODAL = By.xpath("//div[contains(@class,'modal-wrapper')][.//span[contains(normalize-space(),'Receipt Posting Logs')] or .//h1[contains(normalize-space(),'Receipt Posting Logs')]]");
-    private static final By POSTING_LOG_ROWS = By.cssSelector("app-receipt-posting-log app-custom-table table.table-box tbody tr, app-custom-table table.table-box tbody tr");
+    private static final By POSTING_LOG_ROWS = By.cssSelector("app-receipt-posting-log app-custom-table table.table-box tbody tr");
     private static final By POSTING_LOG_NEXT_PAGE = By.cssSelector("app-receipt-posting-log div.paginator-container button[aria-label='Next page'], app-receipt-posting-log button[aria-label*='Next page']");
     private static final By POSTING_LOG_PAGE_SIZE_TRIGGER = By.cssSelector(
             "app-receipt-posting-log mat-paginator [role='combobox'], "
@@ -2235,11 +2235,11 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                             || normalizedStatus.contains("COMPLETED");
                     boolean hasFailureDetails = !reason.isBlank() || !failureCode.isBlank();
 
-                    boolean captureFailure = partialExecution
-                            ? failedStatus || receiptStatus.isBlank() && hasFailureDetails
-                            : !reason.isBlank() && (receiptStatus.isBlank() || failedStatus
-                                    || !failureCode.isBlank() && !successStatus);
-                    if (!captureFailure || !hasFailureDetails) continue;
+                    boolean captureFailure = failedStatus
+                            || partialExecution && receiptStatus.isBlank() && hasFailureDetails
+                            || !partialExecution && !reason.isBlank()
+                                    && (receiptStatus.isBlank() || !successStatus || !failureCode.isBlank());
+                    if (!captureFailure) continue;
 
                     String fallbackSignature = buildRowSignature("", row, 0);
                     if (!receiptNumber.isBlank()) {
@@ -2250,7 +2250,9 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
 
                     String normalizedReason = trimReason(
                             reason.isBlank()
-                                    ? "Failure Code: " + failureCode
+                                    ? failureCode.isBlank()
+                                            ? "Failure reason unavailable in Posting Logs"
+                                            : "Failure Code: " + failureCode
                                     : failureCode.isBlank()
                                             ? reason
                                             : reason + " | Failure Code: " + failureCode);
@@ -2574,45 +2576,38 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
     private void scrollExecutionModalToBottom(WebElement modal) {
         try {
             JavascriptExecutor js = (JavascriptExecutor) driver;
-            js.executeScript(
+            Object scrolled = js.executeScript(
                     "const root = arguments[0];"
                     + "const reason = [...root.querySelectorAll('.list-label')]"
                     + ".find(el => el.textContent.trim() === 'Reason');"
-                    + "const scrollables = el => {"
-                    + "const style = getComputedStyle(el);"
-                    + "return el.scrollHeight > el.clientHeight + 2 && "
-                    + "(el === root || /(auto|scroll|overlay)/.test(style.overflowY));"
-                    + "};"
-                    + "if (reason) {"
-                    + "let node = reason;"
-                    + "while (node && node !== root.parentElement) {"
-                    + "if (scrollables(node)) {"
-                    + "const box = node.getBoundingClientRect();"
+                    + "if (!reason) return false;"
+                    + "const scroller = root.querySelector('.w-full.absolute.overflow-auto');"
+                    + "if (scroller) {"
                     + "const target = reason.getBoundingClientRect();"
-                    + "if (target.bottom > box.bottom - 12) node.scrollTop += target.bottom - box.bottom + 24;"
-                    + "if (target.top < box.top + 12) node.scrollTop -= box.top - target.top + 24;"
+                    + "const viewport = scroller.getBoundingClientRect();"
+                    + "scroller.scrollTop = Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight,"
+                    + "scroller.scrollTop + target.top - viewport.top - 24));"
+                    + "return true;"
+                    + "}"
+                    + "let node = reason.parentElement;"
+                    + "while (node && node !== root) {"
+                    + "const style = getComputedStyle(node);"
+                    + "if (node.scrollHeight > node.clientHeight + 2 && /(auto|scroll|overlay)/.test(style.overflowY)) {"
+                    + "const target = reason.getBoundingClientRect();"
+                    + "const viewport = node.getBoundingClientRect();"
+                    + "node.scrollTop = Math.max(0, Math.min(node.scrollHeight - node.clientHeight,"
+                    + "node.scrollTop + target.top - viewport.top - 24));"
+                    + "return true;"
                     + "}"
                     + "node = node.parentElement;"
                     + "}"
-                    + "reason.scrollIntoView({block:'center', inline:'nearest', behavior:'instant'});"
-                    + "} else {"
-                    + "const nodes = [root, ...root.querySelectorAll('*')];"
-                    + "for (const el of nodes) if (scrollables(el)) el.scrollTop = el.scrollHeight;"
-                    + "}"
-                    + "}",
+                    + "return false;",
                     modal);
-            List<WebElement> reasonLabels = modal.findElements(By.xpath(
-                    ".//div[contains(@class,'list-label') and normalize-space()='Reason']"));
-            for (WebElement label : reasonLabels) {
-                if (isDisplayed(label)) {
-                    js.executeScript(
-                            "arguments[0].scrollIntoView({block:'center', inline:'nearest', behavior:'instant'});",
-                            label);
-                    log("[EXECUTION MODAL] Scrolled the job details panel to the Reason field.");
-                    return;
-                }
+            if (Boolean.TRUE.equals(scrolled)) {
+                log("[EXECUTION MODAL] Scrolled the client job-details panel to the Reason field.");
+            } else {
+                log("[WARN] Could not find the client job-details scroll container or Reason field.");
             }
-            log("[WARN] Reason label was not found in the execution modal.");
         } catch (Exception e) {
             log("[WARN] Could not scroll the job details panel to the Reason field: " + safeText(e));
         }
