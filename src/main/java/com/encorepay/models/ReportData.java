@@ -341,7 +341,9 @@ public final class ReportData {
     }
 
     private static boolean isUnscopedReceiptCountMismatch(String validation) {
-        return safe(validation).toLowerCase(Locale.ROOT).startsWith("receipt count mismatch:");
+        String clean = safe(validation);
+        return clean.toLowerCase(Locale.ROOT).startsWith("receipt count mismatch:")
+                && !clean.contains("; ");
     }
 
     private static String conciseMonitoringReason(String reason) {
