@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,6 +38,10 @@ final class GoogleChatApiNotifier {
                 + " (GOOGLE_CHAT_OAUTH_CLIENT_ID, GOOGLE_CHAT_OAUTH_CLIENT_SECRET,"
                 + " GOOGLE_CHAT_OAUTH_REFRESH_TOKEN). Incoming webhooks cannot carry file attachments,"
                 + " so the HTML report is not attached to this notification.");
+            emitAnnotation("warning", "Google Chat OAuth credentials are not configured",
+                "Incoming webhooks carry text only, so the HTML report was not attached to this"
+                + " notification. Set GOOGLE_CHAT_OAUTH_CLIENT_ID, GOOGLE_CHAT_OAUTH_CLIENT_SECRET"
+                + " and GOOGLE_CHAT_OAUTH_REFRESH_TOKEN to attach the report.");
             sendWebhook(webhook, message);
             System.out.println("[INFO] Google Chat webhook notification sent (text only, no HTML report attached).");
             return;
@@ -60,16 +65,58 @@ final class GoogleChatApiNotifier {
             System.out.println(attachment == null
                     ? "[INFO] Google Chat API message sent successfully."
                     : "[INFO] Google Chat API message sent with HTML attachment.");
+            emitAnnotation("notice", "Google Chat notification sent",
+                    attachment == null
+                            ? "Message sent through the Google Chat API."
+                            : "Message sent with the HTML report attached.");
         } catch (Exception oauthException) {
             System.err.println("[ERROR] Google Chat OAuth notification failed: "
                     + abbreviate(oauthException.getMessage(), 500)
-                    + ". Falling back to the webhook notification (text only, no HTML report attached)."
-                    + " Check GOOGLE_CHAT_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN - refresh tokens expire after"
-                    + " 7 days while the OAuth app is in Testing mode - and confirm the Chat app is a member"
-                    + " of the target space.");
+                    + ". Falling back to the webhook notification (text only, no HTML report attached). "
+                    + describeOAuthFailure(oauthException));
+            emitAnnotation("error", "Google Chat report attachment failed",
+                    abbreviate(oauthException.getMessage(), 300) + " " + describeOAuthFailure(oauthException)
+                    + " The notification was posted as text only, without the HTML report.");
             sendWebhook(webhook, message);
             System.out.println("[INFO] Google Chat webhook fallback notification sent (text only, no HTML report attached).");
         }
+    }
+
+    private static void emitAnnotation(String level, String title, String message) {
+        if (!"true".equalsIgnoreCase(System.getenv("GITHUB_ACTIONS"))) {
+            return;
+        }
+        System.out.println("::" + level + "::" + title + " - " + escapeAnnotation(message));
+    }
+
+    private static String escapeAnnotation(String value) {
+        return value
+                .replace("%", "%25")
+                .replace("\r", "%0D")
+                .replace("\n", "%0A");
+    }
+
+    private static String describeOAuthFailure(Throwable error) {
+        String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
+        if (message.contains("invalid_grant")) {
+            return "The refresh token is expired or revoked. Google expires refresh tokens 7 days after"
+                + " creation while the OAuth app is in Testing mode - re-authorize to obtain a fresh one.";
+        }
+        if (message.contains("invalid_client")) {
+            return "The OAuth client ID or secret is rejected. Check GOOGLE_CHAT_OAUTH_CLIENT_ID"
+                + " and GOOGLE_CHAT_OAUTH_CLIENT_SECRET.";
+        }
+        if (message.contains("403") || message.contains("forbidden")
+                || message.contains("permission_denied") || message.contains("permission denied")) {
+            return "Permission denied. The OAuth consent screen needs the"
+                + " https://www.googleapis.com/auth/chat.messages.create scope, and the user who"
+                + " authorized the token must still be a member of the target space.";
+        }
+        if (message.contains("404") || message.contains("not found")) {
+            return "The space was not found. GOOGLE_CHAT_WEBHOOK_URL must name the same space the"
+                + " OAuth credentials can access.";
+        }
+        return "Verify the OAuth trio and that the Google Chat API is enabled in the Cloud project.";
     }
 
     private static boolean hasOAuthCredentials(ConfigReader config) {

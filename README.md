@@ -173,10 +173,19 @@ Incoming webhooks can post **text only** — they cannot carry file attachments.
 1. In a Google Cloud project, enable the **Google Chat API**.
 2. Configure the OAuth consent screen, then create an **OAuth client** (Desktop or Web app) and note the client ID and secret.
 3. Authorize it with the scope `https://www.googleapis.com/auth/chat.messages.create` to obtain a **refresh token**.
-4. Make sure the resulting Chat app is a **member of the target space** (in Google Chat: space name → Apps → add the app), otherwise message creation fails with a permission error.
+4. Make sure the **user who authorized the token is a member of the target space** — the API acts on that user's behalf — and that `GOOGLE_CHAT_WEBHOOK_URL` names that same space, otherwise the attachment upload or message creation fails with a permission or not-found error.
 5. Store `GOOGLE_CHAT_OAUTH_CLIENT_ID`, `GOOGLE_CHAT_OAUTH_CLIENT_SECRET` and `GOOGLE_CHAT_OAUTH_REFRESH_TOKEN` as repository secrets.
 
 While the OAuth app is in **Testing** mode, Google expires refresh tokens after 7 days — republish the app or re-authorize when notifications mysteriously stop attaching the report. If any of the three is missing, the run logs a warning and posts a text-only notification that still links to the run's report artifact.
+
+**If the report still does not arrive,** the run emits a `Google Chat report attachment failed` annotation next to the failing step with the underlying error:
+
+| Error in the annotation | Cause | Fix |
+|---|---|---|
+| `invalid_grant` | Refresh token expired or revoked (7 days in Testing mode) | Re-authorize to get a fresh refresh token |
+| `invalid_client` | Wrong client ID or secret | Check `GOOGLE_CHAT_OAUTH_CLIENT_ID` / `GOOGLE_CHAT_OAUTH_CLIENT_SECRET` |
+| `403` | `chat.messages.create` scope not granted, or the authorizing user is no longer in the space | Re-consent with the scope, or restore space membership |
+| `404` | The webhook URL names a different space than the OAuth credentials can reach | Point `GOOGLE_CHAT_WEBHOOK_URL` at the same space |
 
 ### Local run with no config file
 
