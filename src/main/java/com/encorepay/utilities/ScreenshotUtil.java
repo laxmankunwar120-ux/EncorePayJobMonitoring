@@ -46,12 +46,10 @@ public final class ScreenshotUtil {
         addDetail(VERIFICATIONS, currentTestName(null), detail);
     }
 
-    
     public static String captureCurrentTestStep(WebDriver driver, String stepLabel) {
         return captureScreenshot(driver, currentTestName(stepLabel), stepLabel);
     }
 
-    
     public static String captureScreenshot(WebDriver driver, String testName, String stepLabel) {
         String label = stepLabel == null || stepLabel.isBlank() ? "Screenshot" : stepLabel;
 
@@ -139,7 +137,6 @@ public final class ScreenshotUtil {
         }
     }
 
-    
     private static String currentTestName(String fallbackLabel) {
         String name = CURRENT_TEST.get();
         if (name != null && !name.isBlank()) {
@@ -184,5 +181,3 @@ public final class ScreenshotUtil {
         return sanitized.length() > 80 ? sanitized.substring(0, 80).trim() : sanitized;
     }
 }
-
-

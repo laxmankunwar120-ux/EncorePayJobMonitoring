@@ -16,7 +16,6 @@ public final class GoogleChatNotifier {
     private static final DateTimeFormatter REPORT_TIME =
             DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm", Locale.ENGLISH);
 
-    /** Right-aligned width of the Failed/Pending count columns. */
     private static final int COUNT_WIDTH = 7;
 
     private GoogleChatNotifier() {}
@@ -231,7 +230,6 @@ private static void appendClientExceptions(
 
     message.append('\n');
 }
-   
 
     private static String clientStateLabel(ReportData.ClientState state) {
         return switch (state) {
@@ -252,10 +250,6 @@ private static void appendClientExceptions(
 
         message.append(title).append('\n');
 
-        // Google Chat renders normal text in a proportional font, so spaces
-        // cannot be relied on for table alignment. Keep the table itself in a
-        // monospace code block and cap widths so long values never make the
-        // report unnecessarily wide.
         final int clientWidth = 18;
         final int statusWidth = 16;
         final int failedWidth = 7;
@@ -453,7 +447,6 @@ private static void appendClientExceptions(
         }
     }
 
-
     private static String padRight(String value, int width) {
         StringBuilder padded = new StringBuilder(value);
         while (padded.length() < width) {
@@ -478,8 +471,6 @@ private static void appendClientExceptions(
         String clean = safe(value);
         if (clean.isBlank()) return "N/A";
 
-        // Keep only the time when the captured value contains a full date/time.
-        // This keeps Google Chat tables narrow without losing the execution time.
         java.util.regex.Matcher matcher = java.util.regex.Pattern
                 .compile("(\\d{1,2}:\\d{2}(?::\\d{2})?\\s+(?:AM|PM))$", java.util.regex.Pattern.CASE_INSENSITIVE)
                 .matcher(clean);

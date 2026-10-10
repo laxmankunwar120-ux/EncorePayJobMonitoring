@@ -219,7 +219,6 @@ public class ActionDriver {
         waitForTransientFeedbackToClear(driver, this::recordVerification);
     }
 
- 
     public static void waitForTransientFeedbackToClear(WebDriver driver) {
         waitForTransientFeedbackToClear(driver, null);
     }
@@ -273,7 +272,6 @@ public class ActionDriver {
         }
     }
 
-
     public void smoothScrollToTop() {
         try {
             ((JavascriptExecutor) driver)
@@ -315,7 +313,6 @@ public class ActionDriver {
         }
     }
 
-
     public boolean validate(boolean condition, String passMsg, String failMsg) {
         if (condition) {
             System.out.println("[PASS] " + passMsg);
@@ -335,7 +332,6 @@ public class ActionDriver {
         return visible;
     }
 
-    
     public String captureStep(String label) {
         try {
             waitForUiStable();
@@ -346,7 +342,6 @@ public class ActionDriver {
         }
     }
 
-    
     public void markStep(String step) {
         if (step == null || step.isBlank()) return;
         currentStep = step.trim();
@@ -357,7 +352,6 @@ public class ActionDriver {
         return currentStep;
     }
 
-    
     public String captureFailure(String reason) {
         StringBuilder detail = new StringBuilder(reason == null ? "Unknown failure." : reason);
 
@@ -464,19 +458,19 @@ public class ActionDriver {
             if (!isProtectedElement) {
                 closeFloatingMenus(driver);
             }
-            
+
             try {
 
                 new WebDriverWait(driver, Duration.ofSeconds(3))
                     .until(ExpectedConditions.invisibilityOfElementLocated(By.cssSelector(".cdk-overlay-backdrop:not(.cdk-overlay-transparent-backdrop), .ngx-spinner, .loader")));
             } catch (Exception ignored) {}
-            
+
             ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", element);
-            
+
             try {
                 new WebDriverWait(driver, Duration.ofSeconds(5)).until(ExpectedConditions.elementToBeClickable(element));
             } catch (Exception ignored) {}
-            
+
             element.click();
         } catch (Exception e) {
             try {
@@ -524,5 +518,3 @@ public class ActionDriver {
             .trim();
     }
 }
-
-

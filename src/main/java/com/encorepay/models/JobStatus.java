@@ -9,7 +9,6 @@ import java.util.Map;
 
 public class JobStatus {
 
-    /** -1 means the count could not be determined; it is never the same as zero. */
     public static final int UNKNOWN_COUNT = -1;
     private static final int MAX_REASON_LENGTH = 180;
 
@@ -22,7 +21,7 @@ public class JobStatus {
     private final Map<String, Integer> failureReasonCounts = new LinkedHashMap<>();
     private String jobFailureReason;
     private String validationMessage;
-    /** True when this object is a report placeholder and not data captured from the application. */
+
     private boolean synthetic;
 
     public JobStatus() {
@@ -109,24 +108,16 @@ public class JobStatus {
         return total;
     }
 
-    /**
-     * Receipt-level reconciliation contract for Post Receipts.
-     * A known FAILED count is complete only when every failed receipt has
-     * exactly one captured failure reason. Unknown FAILED counts cannot be
-     * reconciled and therefore return false.
-     */
     public boolean isFailureReasonCountReconciled() {
         if (!"Post Receipts Job".equalsIgnoreCase(clean(jobName))) return true;
         if (failedCount < 0) return false;
         return getTotalFailureReasonCount() == failedCount;
     }
 
-    /** Returns the raw status exactly as captured from the application. Never converts. */
     public String getRawStatus() {
         return status == null ? "" : status.trim();
     }
 
-    /** Checks if the status indicates success (COMPLETED, SUCCESS, SUCCEEDED) without PARTIAL. */
     public boolean isSuccessful() {
         String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
         return !v.contains("UNSUCCESS")
@@ -134,36 +125,30 @@ public class JobStatus {
                 && !v.contains("PARTIAL");
     }
 
-    /** Checks if the status indicates failure (contains FAIL) without PARTIAL. */
     public boolean isFailed() {
         String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
         return v.contains("FAIL") && !v.contains("PARTIAL");
     }
 
-    /** Checks if the status is PARTIALLY_SUCCESSFUL. */
     public boolean isPartialSuccess() {
         String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
         return v.equals("PARTIALLY_SUCCESSFUL");
     }
 
-    /** Checks if status is not captured / not run (N/A, NOT_CAPTURED, NO_STATUS, blank). */
     public boolean isNotRun() {
         String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
         return v.isBlank() || v.equals("N/A") || v.equals("NOT_CAPTURED") || v.equals("NO_STATUS");
     }
 
-    /** Checks if the execution needs attention based only on its captured status. */
     public boolean requiresAttention() {
         return isFailed() || isPartialSuccess() || isNotRun() || isUnresolvedStatus();
     }
 
-    /** True when a non-empty status was captured but it is neither a successful nor failed terminal outcome. */
     public boolean isUnresolvedStatus() {
         String v = getRawStatus().toUpperCase(Locale.ROOT).replace(' ', '_');
         return !v.isBlank() && !isSuccessful() && !isFailed() && !isPartialSuccess() && !isNotRun();
     }
 
-    /** Returns a display-friendly status label preserving the original application status. */
     public String getDisplayStatus() {
         String raw = getRawStatus();
         if (raw.isBlank()) return "N/A";

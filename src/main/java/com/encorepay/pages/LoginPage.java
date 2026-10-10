@@ -75,7 +75,6 @@ public class LoginPage extends BasePage {
             + "[contains(.,'Success') or contains(.,'success')]")
     private List<WebElement> successToasts;
 
-    
     @FindBy(xpath =
         "//nav[.//button[contains(@class,'menu-btn')]]"
             + " | //button[normalize-space()='Dashboard']"
@@ -93,9 +92,7 @@ public class LoginPage extends BasePage {
     public LoginPage(WebDriver driver, ConfigReader config) {
         super(driver, config);
         this.signInWait = wait;
-        // Authentication can legitimately take longer for some client
-        // environments. Keep the normal UI wait unchanged and give only the
-        // post-submit authentication transition a bounded production-safe wait.
+
         this.loginOutcomeWait = new WebDriverWait(
             driver,
             Duration.ofSeconds(Math.max(config.getExplicitWait(), 45))
@@ -117,10 +114,7 @@ public class LoginPage extends BasePage {
     }
 
     public void waitForLoginOrAuthenticatedPage() {
-        // Login readiness has its own bounded wait. Infrastructure error pages
-        // (404/502/503/504/nginx) are detected immediately so they cannot turn
-        // into an opaque 45/90-second Selenium timeout. The caller then performs
-        // the normal maximum-two-attempt login policy.
+
         loginOutcomeWait.until(d -> {
             String accessFailure = detectInfrastructureFailure();
             if (!accessFailure.isBlank()) {
@@ -170,9 +164,7 @@ public class LoginPage extends BasePage {
         RuntimeException lastFailure = null;
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
-                // Login readiness belongs to the login flow. Never run the generic
-                // long application bootstrap before this method, otherwise a dead
-                // client can leak a raw Selenium TimeoutException before retrying.
+
                 waitForLoginOrAuthenticatedPage();
                 if (isAuthenticatedAreaVisible()) {
                     action.recordVerification("User reached the authenticated area after sign-in attempt " + attempt + ".");
@@ -275,7 +267,6 @@ public class LoginPage extends BasePage {
         login(config.getUsername(), config.getPassword());
     }
 
-
     private RuntimeException buildLoginFailure(String flow, Throwable error) {
         String code = classifyLoginFailure(error);
         String message = switch (code) {
@@ -340,8 +331,7 @@ public class LoginPage extends BasePage {
     }
 
     public boolean isLoginSuccessful() {
-        // A toast is only feedback. The authenticated application state is the
-        // authoritative success condition.
+
         return isAuthenticatedAreaVisible();
     }
 
@@ -364,9 +354,7 @@ public class LoginPage extends BasePage {
     private boolean isApplicationSignInPage() {
         try {
             String url = driver.getCurrentUrl().toLowerCase(Locale.ROOT);
-            // The application's real login route is /#/signin. Do not treat
-            // an off-screen/stale username input as proof that the user is
-            // still unauthenticated.
+
             if (url.contains("#/signin") || url.contains("/signin")) {
                 return true;
             }
@@ -377,10 +365,7 @@ public class LoginPage extends BasePage {
     }
 
     private boolean isAuthenticatedAreaVisible() {
-        // The rendered app shell is the authoritative authentication signal.
-        // Angular can update the shell just before the hash route changes, so
-        // do not reject a valid authenticated shell because the URL is still
-        // momentarily on /signin.
+
         return isAuthenticatedApplicationVisible();
     }
 
@@ -421,8 +406,6 @@ public class LoginPage extends BasePage {
         type(usernameField, username);
         type(passwordField, password);
 
-        // Angular ngModel must receive the values before submit. Verify the DOM
-        // state instead of assuming sendKeys succeeded through a slow/overlaid UI.
         signInWait.until(d -> {
             try {
                 String actualUser = usernameField.getAttribute("value");
@@ -582,5 +565,3 @@ private boolean isNormalLoginVisible() {
     }
 }
 }
-
-

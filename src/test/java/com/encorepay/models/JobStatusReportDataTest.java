@@ -89,6 +89,7 @@ public class JobStatusReportDataTest {
     @Test
     public void reportDataMarksReceiptValidationGapAsAttention() {
         JobStatus post = job("SUCCESS");
+        post.setClientName("CONATUS");
         post.setJobName("Post Receipts Job");
         post.setFailedCount(4);
         post.addFailureReason("Connection refused", 3);
@@ -110,6 +111,7 @@ public class JobStatusReportDataTest {
     @Test
     public void partiallySuccessfulPostReceiptsReportsPostingLogFailureReasons() {
         JobStatus post = job("PARTIALLY_SUCCESSFUL");
+        post.setClientName("CONATUS");
         post.setJobName("Post Receipts Job");
         post.setFailedCount(2);
         post.setPendingCount(0);
@@ -132,6 +134,7 @@ public class JobStatusReportDataTest {
     @Test
     public void unscopedReceiptCountMismatchDoesNotCreateFalseClientAttention() {
         JobStatus post = job("SUCCESS");
+        post.setClientName("CONATUS");
         post.setJobName("Post Receipts Job");
         post.setFailedCount(0);
         post.setPendingCount(0);
@@ -155,6 +158,7 @@ public class JobStatusReportDataTest {
     @Test
     public void clientLevelLoginTimeoutIsNotReportedAsJobFailure() {
         JobStatus syntheticPost = job("N/A");
+        syntheticPost.setClientName("CONATUS");
         syntheticPost.setJobName("Post Receipts Job");
         syntheticPost.setSynthetic(true);
 

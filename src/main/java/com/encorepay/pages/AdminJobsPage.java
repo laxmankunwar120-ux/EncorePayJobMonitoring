@@ -270,15 +270,8 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 results.add(captureJobWithRetry(clientName, JOB_UPCOMING_DEMAND,
                         () -> monitorExecutionJob(JOB_UPCOMING_DEMAND, clientName)));
             } else {
-                JobStatus unavailable = new JobStatus();
-                unavailable.setClientName(clientName);
-                unavailable.setJobName(JOB_UPCOMING_DEMAND);
-                unavailable.setStatus("N/A");
-                unavailable.setDateTime("N/A");
-                unavailable.setJobFailureReason("Upcoming Demand Job not available");
-                unavailable.setSynthetic(true);
-                results.add(unavailable);
-                System.out.println("[INFO] Upcoming Demand Job is not configured for " + clientName + ".");
+
+                System.out.println("[INFO] Upcoming Demand Job is not configured for " + clientName + "; skipping.");
             }
         } catch (Exception e) {
             System.out.println("[WARN] Upcoming Demands Job capture error for " + clientName + ": " + e.getMessage());
@@ -295,7 +288,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
     }
 
     private JobStatus captureJobWithRetry(String clientName, String jobName, JobCaptureOperation operation) {
-        RuntimeException lastFailure = null;
+        Throwable lastFailure = null;
 
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
@@ -307,7 +300,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                 }
                 validateCapturedJob(clientName, jobName, captured);
                 return captured;
-            } catch (RuntimeException e) {
+            } catch (Throwable e) {
                 lastFailure = e;
                 System.out.println("[WARN] " + jobName + " capture attempt " + attempt + "/2 failed for "
                         + clientName + ": " + safeText(e));
@@ -315,7 +308,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     try {
                         recoverToJobsPage();
                         ensureJobsPage();
-                    } catch (RuntimeException recoveryError) {
+                    } catch (Throwable recoveryError) {
                         lastFailure = recoveryError;
                         System.out.println("[WARN] Jobs-page recovery before " + jobName
                                 + " retry failed: " + safeText(recoveryError));
@@ -340,7 +333,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
         }
     }
 
-    private JobStatus unavailableJobPlaceholder(String clientName, String jobName, Exception cause) {
+    private JobStatus unavailableJobPlaceholder(String clientName, String jobName, Throwable cause) {
         JobStatus unavailable = new JobStatus();
         unavailable.setClientName(clientName);
         unavailable.setJobName(jobName);
@@ -737,7 +730,6 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         return new ArrayList<>(sizes);
     }
- 
 
     private List<Integer> findAvailableReceiptPageSizes() {
         Set<Integer> sizes = new java.util.TreeSet<>();
@@ -1226,7 +1218,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
         for (int candidate : candidates) {
             if (current > 0 && current >= candidate) {
-                continue; // already at or above this size
+                continue;
             }
             log("[EXPAND] Attempting page size " + candidate
                     + " (current=" + current + ", discoveredPreferred=" + preferred + ")");
@@ -1297,7 +1289,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private String selectReceiptDateToday() {
         String isoDate = LocalDate.now(config.getBusinessZone())
-                .format(DateTimeFormatter.ISO_LOCAL_DATE); // YYYY-MM-DD
+                .format(DateTimeFormatter.ISO_LOCAL_DATE);
 
         WebElement date = findDateInput();
         if (date == null) {
@@ -1357,7 +1349,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
             try {
                 WebElement selectElement = new WebDriverWait(driver, Duration.ofSeconds(3))
                         .until(ExpectedConditions.elementToBeClickable(LMS_POSTING_STATUS));
-                
+
                 Boolean success = (Boolean) ((JavascriptExecutor) driver).executeScript(
                     "var s = arguments[0], v = arguments[1];" +
                     "for (var i = 0; i < s.options.length; i++) {" +
@@ -1389,13 +1381,13 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
                     if (status.equalsIgnoreCase(text) || status.equalsIgnoreCase(value)) {
                         if (status.equalsIgnoreCase(text)) select.selectByVisibleText(option.getText());
                         else select.selectByValue(option.getAttribute("value"));
-                        
+
                         ((JavascriptExecutor) driver).executeScript(
                             "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));" +
                             "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));" +
                             "arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));",
                             selectElement);
-                        
+
                         String selected = clean(select.getFirstSelectedOption().getText());
                         if (status.equalsIgnoreCase(selected)) return true;
                     }
@@ -1436,7 +1428,7 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
     private boolean waitUntilReceiptPageSizeIsApplied(int desiredSize) {
         String expected = String.valueOf(desiredSize);
-        long deadline = System.currentTimeMillis() + 15000; // Increased to 15 seconds for data reload
+        long deadline = System.currentTimeMillis() + 15000;
 
         while (System.currentTimeMillis() < deadline) {
             if (expected.equals(queryParam("size"))) {
@@ -1973,8 +1965,12 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
 
             if (status.getFailedCount() > 0
                     && totalFailureReasonCount(status) < status.getFailedCount()) {
+                int capturedBeforeGapFill = totalFailureReasonCount(status);
+                int missing = status.getFailedCount() - capturedBeforeGapFill;
+
+                status.addFailureReason("REASON_NOT_CAPTURED", missing);
                 String gapMessage = "Receipt UI/PostingLogs capture incomplete: captured "
-                        + totalFailureReasonCount(status) + " of " + status.getFailedCount()
+                        + capturedBeforeGapFill + " of " + status.getFailedCount()
                         + " FAILED receipts.";
                 String existing = status.getValidationMessage();
                 status.setValidationMessage(existing == null || existing.isBlank()
@@ -2023,7 +2019,10 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 status.setStatus(rowStatus);
                 captured = true;
             } else if (rowStatus == null && (status.getStatus() == null || status.getStatus().isBlank())) {
-                status.setStatus("N/A");
+                // Job ran (has date/time) but execution status was not
+                // explicitly captured, so record it as EXECUTION rather than
+                // N/A so the report reflects that the job did run.
+                status.setStatus("EXECUTION");
                 captured = true;
             }
             if (!rowDateTime.isBlank() && (status.getDateTime() == null || status.getDateTime().isBlank())) {
@@ -2094,10 +2093,28 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         int failed = Integer.parseInt(matcher.group(4));
 
         if (isPartialSuccessStatus(status.getStatus())) {
-            status.setFailedCount(failed);
-            status.setValidationMessage(removeReceiptCountMismatch(status.getValidationMessage()));
-            log("[RECEIPT RECONCILIATION] PARTIALLY_SUCCESSFUL execution reports "
-                    + failed + " failed receipt(s); using this count to validate PostingLogs capture.");
+            if (status.getFailedCount() == UNKNOWN_COUNT) {
+
+                status.setFailedCount(failed);
+                status.setValidationMessage(
+                    "FAILED receipt search count was unavailable; using the job execution summary count of "
+                    + failed + " as the fallback."
+                );
+            } else {
+                status.setValidationMessage(removeReceiptCountMismatch(status.getValidationMessage()));
+                if (failed != status.getFailedCount()) {
+
+                    String mismatch = "Receipt count mismatch: receipt UI reports " + status.getFailedCount()
+                            + " FAILED record(s), while the job execution summary reports " + failed
+                            + " FAILED record(s). These counts may cover different receipt populations; "
+                            + "the receipt UI count is retained as authoritative.";
+                    status.setValidationMessage(mismatch);
+                    log("[RECEIPT RECONCILIATION] " + status.getClientName() + ": " + mismatch);
+                } else {
+                    log("[RECEIPT RECONCILIATION] PARTIALLY_SUCCESSFUL execution reports "
+                            + failed + " failed receipt(s); matches the authoritative receipt-UI count.");
+                }
+            }
         } else if (status.getFailedCount() == UNKNOWN_COUNT) {
             status.setFailedCount(failed);
             status.setValidationMessage(
@@ -2105,7 +2122,7 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 + failed + " as the fallback."
             );
         } else if (failed != status.getFailedCount()) {
-            String mismatch = "Receipt count mismatch: receipt API reports " + status.getFailedCount()
+            String mismatch = "Receipt count mismatch: receipt UI reports " + status.getFailedCount()
                     + " FAILED record(s), while the job execution summary reports " + failed
                     + " FAILED record(s). These counts may cover different receipt populations; "
                     + "the receipt UI/API count is retained as authoritative.";
@@ -2145,6 +2162,53 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
         return null;
     }
 
+    private int[] resolvePostingLogColumns() {
+        int[] fallback = {0, 5, 6, 7};
+        try {
+            List<WebElement> headerCells = driver.findElements(By.cssSelector(
+                    "app-receipt-posting-log app-custom-table table.table-box thead th, "
+                    + "app-receipt-posting-log app-custom-table table.table-box thead td, "
+                    + "app-receipt-posting-log app-custom-table table.table-box thead .mat-header-cell"));
+            if (headerCells.isEmpty()) {
+                return fallback;
+            }
+            int receiptNo = -1, statusIdx = -1, reasonIdx = -1, codeIdx = -1;
+            for (int i = 0; i < headerCells.size(); i++) {
+                String header = clean(headerCells.get(i).getText()).toLowerCase(Locale.ROOT);
+                if (header.isEmpty()) continue;
+                if (receiptNo < 0 && (header.contains("receipt") && (header.contains("no") || header.contains("number") || header.contains("id")))) {
+                    receiptNo = i;
+                } else if (statusIdx < 0 && header.contains("status")) {
+                    statusIdx = i;
+                } else if (reasonIdx < 0 && (header.contains("reason") || header.contains("remark") || header.contains("error"))) {
+                    reasonIdx = i;
+                } else if (codeIdx < 0 && (header.contains("code") || header.contains("error code"))) {
+                    codeIdx = i;
+                }
+            }
+            if (reasonIdx < 0 || statusIdx < 0 || (reasonIdx == statusIdx)) {
+                return fallback;
+            }
+            return new int[]{
+                    receiptNo < 0 ? fallback[0] : receiptNo,
+                    statusIdx,
+                    reasonIdx,
+                    codeIdx < 0 || codeIdx == reasonIdx || codeIdx == statusIdx ? fallback[3] : codeIdx
+            };
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private String safeCellText(List<WebElement> cells, int index) {
+        if (index < 0 || index >= cells.size()) return "";
+        try {
+            return clean(cells.get(index).getText());
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private void capturePostingLogFailureReasons(String jobName, JobStatus status) {
         if (!JOB_POST_RECEIPTS.equalsIgnoreCase(jobName)) {
             return;
@@ -2180,6 +2244,8 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
 
             setPostingLogPageSizeTo100();
 
+            int[] logColumns = resolvePostingLogColumns();
+
             Map<String, Integer> reasonCounts = new LinkedHashMap<>();
             Set<String> pages = new LinkedHashSet<>();
             Set<String> seenReceiptNumbers = new LinkedHashSet<>();
@@ -2213,12 +2279,20 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                 for (WebElement row : rows) {
                     if (!isDisplayed(row)) continue;
                     List<WebElement> cells = row.findElements(By.xpath("./td"));
-                    if (cells.size() < 8) continue;
+                    if (cells.isEmpty()) continue;
 
-                    String receiptNumber = clean(cells.get(0).getText());
-                    String receiptStatus = clean(cells.get(5).getText());
-                    String reason = clean(cells.get(6).getText());
-                    String failureCode = clean(cells.get(7).getText());
+                    String receiptNumber = safeCellText(cells, logColumns[0]);
+                    String receiptStatus = safeCellText(cells, logColumns[1]);
+                    String reason = safeCellText(cells, logColumns[2]);
+                    String failureCode = safeCellText(cells, logColumns[3]);
+
+                    String rowTextFallback = clean(row.getText());
+                    if (receiptNumber.isBlank() && receiptStatus.isBlank()
+                            && reason.isBlank() && failureCode.isBlank()
+                            && rowTextFallback.isBlank()) {
+                        continue;
+                    }
+
                     boolean partialExecution = isPartialSuccessStatus(status.getStatus());
                     String normalizedStatus = receiptStatus.toUpperCase(Locale.ROOT);
                     boolean failedStatus = normalizedStatus.contains("FAIL");
@@ -2227,7 +2301,8 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                     boolean hasFailureDetails = !reason.isBlank() || !failureCode.isBlank();
 
                     boolean captureFailure = failedStatus
-                            || partialExecution && receiptStatus.isBlank() && hasFailureDetails
+                            || hasFailureDetails
+                            || partialExecution && receiptStatus.isBlank()
                             || !partialExecution && !reason.isBlank()
                                     && (receiptStatus.isBlank() || !successStatus || !failureCode.isBlank());
                     if (!captureFailure) continue;
@@ -2239,14 +2314,20 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
                         continue;
                     }
 
-                    String normalizedReason = trimReason(
-                            reason.isBlank()
-                                    ? failureCode.isBlank()
-                                            ? "Failure reason unavailable in Posting Logs"
-                                            : "Failure Code: " + failureCode
-                                    : failureCode.isBlank()
-                                            ? reason
-                                            : reason + " | Failure Code: " + failureCode);
+                    String capturedDetail;
+                    if (!reason.isBlank() && !failureCode.isBlank()) {
+                        capturedDetail = reason + " | Failure Code: " + failureCode;
+                    } else if (!reason.isBlank()) {
+                        capturedDetail = reason;
+                    } else if (!failureCode.isBlank()) {
+                        capturedDetail = "Failure Code: " + failureCode;
+                    } else {
+                        capturedDetail = rowTextFallback.isBlank()
+                                ? "Receipt marked as failed in Posting Logs (reason field empty in UI row)"
+                                : rowTextFallback;
+                    }
+
+                    String normalizedReason = trimReason(capturedDetail);
                     reasonCounts.merge(normalizedReason, 1, Integer::sum);
                     foundReason = true;
                 }
@@ -3365,4 +3446,3 @@ private void waitForJobDetailsPage(String jobName) {
         waitForUiStable();
     }
 }
-

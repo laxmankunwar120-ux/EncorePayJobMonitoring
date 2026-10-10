@@ -226,4 +226,3 @@ final class GoogleChatApiNotifier {
         return text.length() <= maxLength ? text : text.substring(0, Math.max(0, maxLength - 3)) + "...";
     }
 }
-

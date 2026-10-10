@@ -22,7 +22,6 @@ import com.encorepay.utilities.RetryUtils;
 
 public class BasePage {
 
-
     protected static final By APPLICATION_NAVIGATION = By.xpath(
         "//nav[.//button[contains(@class,'menu-btn')]]"
             + " | //button[normalize-space()='Dashboard']"
@@ -34,11 +33,6 @@ public class BasePage {
             + " | //app-login//button[normalize-space()='Sign in with SSO']"
             + " | //button[normalize-space()='Log In']");
 
-    /**
-     * Authenticated application markers reused by the working Admin/Jobs and
-     * Receipts flows. These are application components, not login feedback, so
-     * they are a stronger signal that authentication has actually completed.
-     */
     protected static final By AUTHENTICATED_APPLICATION = By.xpath(
         "//app-ig-layout[.//nav[.//button[contains(@class,'menu-btn')]]]"
             + " | //app-ig-layout//nav[.//button[contains(@class,'menu-btn')]]"
@@ -150,10 +144,7 @@ public class BasePage {
     }
 
     protected boolean isAuthenticatedApplicationVisible() {
-        // The application components are authoritative. Some deployments can
-        // keep the signin hash briefly while Angular finishes the authenticated
-        // transition, so do not reject a real authenticated shell just because
-        // the URL has not changed yet.
+
         if (anyVisible(AUTHENTICATED_APPLICATION)) {
             return true;
         }
@@ -260,7 +251,7 @@ public class BasePage {
             try {
                 originalHandle = driver.getWindowHandle();
             } catch (Exception ignored) {}
-            
+
             for (String handle : driver.getWindowHandles()) {
                 if (!handle.equals(originalHandle)) {
                     driver.switchTo().window(handle);
@@ -268,7 +259,7 @@ public class BasePage {
                     return;
                 }
             }
-            
+
             if (originalHandle != null) {
                 driver.switchTo().window(originalHandle);
                 log("Reverted to original window: " + originalHandle);
@@ -337,12 +328,6 @@ public class BasePage {
         action.scrollToElement(element);
     }
 
-    /**
-     * Scrolls the browser window smoothly to the very bottom and waits for the
-     * UI to settle. Use this as the global page scroller so every job flow
-     * (Post Receipts, Download Collection Items, Upcoming Demand) scrolls
-     * consistently far enough to expose job status columns.
-     */
     protected void scrollPageToBottom() {
         try {
             ((JavascriptExecutor) driver).executeScript(
@@ -358,12 +343,6 @@ public class BasePage {
         waitForUiStable();
     }
 
-    /**
-     * Scrolls the given scrollable container (for example the jobs table
-     * wrapper) all the way to its bottom and waits for stability. This is the
-     * container-level equivalent of {@link #scrollPageToBottom()} and is used
-     * when the application renders jobs inside an inner scrollable region.
-     */
     protected void scrollContainerToBottom(WebElement container) {
         if (container == null) {
             scrollPageToBottom();
@@ -384,11 +363,6 @@ public class BasePage {
         waitForUiStable();
     }
 
-    /**
-     * Finds the nearest scrollable ancestor of the given element and scrolls it
-     * to the bottom. Falls back to the global page scroller when no scrollable
-     * ancestor is found.
-     */
     protected void scrollToBottomAround(WebElement element) {
         if (element == null) {
             scrollPageToBottom();
@@ -480,5 +454,3 @@ public class BasePage {
         }
     }
 }
-
-

@@ -181,13 +181,6 @@ public class MultiClientAdminJobsTest {
                 "Invalid runMode: " + runMode + ". Allowed values are single or multiple.");
     }
 
-    /**
-     * Runs one client with a bounded fresh-browser recovery pass. A browser/session
-     * can become poisoned even when the website itself is healthy; retrying the
-     * same Selenium state is not a reliable recovery strategy. The first pass is
-     * always the source of truth, and a second pass is used only when required
-     * monitoring data is incomplete or the monitoring stage failed.
-     */
     private ClientRunResult runClient(ClientConfig client, String runCorrelationId) {
         ClientRunResult best = null;
 
@@ -201,8 +194,6 @@ public class MultiClientAdminJobsTest {
                 return current;
             }
 
-            // Never retry an explicitly rejected credential or an already-classified
-            // two-attempt login outage. Those are deterministic business outcomes.
             if (current.failureMessage != null && isTerminalClientFailure(current.failureMessage)) {
                 return current;
             }
@@ -241,9 +232,7 @@ public class MultiClientAdminJobsTest {
             action.markStep("authenticate");
             loginPage = new LoginPage(driver, clientConfig);
             loginPage.setCorrelationId(runCorrelationId + "-" + safeClientName(client).substring(0, Math.min(4, safeClientName(client).length())).toUpperCase());
-            // LoginPage owns login readiness/retry handling. Do not run the generic
-            // application bootstrap here; an unavailable client must reach the
-            // two-attempt SERVER_DOWN policy instead of leaking a raw TimeoutException.
+
             if (client.isSso()) {
                 loginPage.ssoLogin(client.getUsername(), client.getPassword());
             } else {
@@ -263,10 +252,6 @@ public class MultiClientAdminJobsTest {
             action.markStep("monitor configured jobs");
             statuses = adminJobsPage.monitorAllConfiguredJobs();
 
-            // Monitoring is read-only. If a transient page-load/session problem
-            // caused all required jobs to become unavailable, recover the jobs
-            // page and perform one bounded second pass instead of publishing
-            // false N/A data from a single transient UI failure.
             if (requiredResultsUnavailable(statuses)) {
                 System.out.println("[CLIENT RETRY] " + safeClientName(client)
                         + " produced no trustworthy required-job results; retrying monitoring once after UI recovery.");
@@ -282,16 +267,12 @@ public class MultiClientAdminJobsTest {
             try {
                 validateMonitoringData(statuses);
             } catch (Throwable validationError) {
-                // Validation must never replace valid per-job UI data with client-wide N/A.
-                // Keep the captured job statuses so the manager report remains truthful.
+
                 failureMessage = "Monitoring validation warning: " + safeMessage(validationError);
                 System.out.println("[" + runCorrelationId + "][CLIENT VALIDATION WARNING] "
                         + safeClientName(client) + " :: " + failureMessage);
             }
 
-            // A monitoring pass that returns an N/A required job without a usable
-            // timestamp is incomplete data, not a successful monitoring run. The
-            // outer client recovery loop will start one fresh browser pass.
             if (!isCompleteRequiredMonitoring(statuses) && (failureMessage == null || failureMessage.isBlank())) {
                 failureMessage = "Monitoring data could not be completely captured after UI recovery attempts.";
             }
@@ -307,9 +288,7 @@ public class MultiClientAdminJobsTest {
                     ? safeMessage(e)
                     : action.captureFailure(safeMessage(e));
             }
-            // Preserve the failure independently of whether placeholders are created.
-            // A client with zero usable results must never look like a clean client just
-            // because the exception happened before a JobStatus object was produced.
+
             failureMessage = reason;
             if (statuses == null || statuses.isEmpty()) {
                 statuses = unavailableStatusesForClient(client, reason);
@@ -336,33 +315,17 @@ public class MultiClientAdminJobsTest {
         return new ClientRunResult(statuses, failureMessage);
     }
 
-    /**
-     * Robust browser cleanup for every client, including SSO clients such as
-     * sarvagram. For SSO clients the application logout is intentionally
-     * skipped (the SSO session persists), so the browser is left on the
-     * authenticated page. Authenticated pages commonly register a
-     * beforeunload handler that can leave an orphaned browser window behind
-     * after driver.quit(). Non-SSO clients avoid this because logout
-     * navigates to the clean sign-in page first. This method neutralizes the
-     * beforeunload handler, closes every open window/tab (including any SSO
-     * popup or extra tab), and then quits the driver so the browser always
-     * closes regardless of client type.
-     */
     private void quitBrowserSafely(WebDriver driver) {
         if (driver == null) {
             return;
         }
 
-        // Neutralize beforeunload handlers registered by authenticated pages
-        // so they cannot block window closure during quit.
         try {
             ((JavascriptExecutor) driver).executeScript(
                     "try { window.onbeforeunload = null; } catch (e) {}");
         } catch (Exception ignored) {
         }
 
-        // Close every open window/tab so SSO popups or extra tabs opened
-        // during the SSO flow do not survive the main window close.
         try {
             for (String handle : driver.getWindowHandles()) {
                 try {
@@ -457,16 +420,13 @@ public class MultiClientAdminJobsTest {
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
                 driver.get(url);
-                // A full document load is useful, but SPA readiness is determined by
-                // LoginPage. Do not add another long bootstrap wait here.
+
                 new WebDriverWait(driver, Duration.ofSeconds(Math.max(5, Math.min(15, config.getExplicitWait()))))
                         .until(d -> d.getCurrentUrl() != null && !d.getCurrentUrl().isBlank());
                 return;
             } catch (org.openqa.selenium.TimeoutException e) {
                 last = e;
-                // Chrome can report page-load timeout while the SPA shell is already
-                // reachable. Let LoginPage inspect the real application state instead
-                // of converting that browser-level timeout into a false server outage.
+
                 try {
                     String current = driver.getCurrentUrl();
                     if (current != null && !current.isBlank()) {
@@ -554,9 +514,7 @@ public class MultiClientAdminJobsTest {
             if (status != null && status.getStatus() != null
                 && status.getStatus().toUpperCase().contains("FAIL")) {
                 if (status.getJobFailureReason() == null || status.getJobFailureReason().isBlank()) {
-                    // Validation must never discard all valid job results for a client.
-                    // AdminJobsPage records a capture note when the UI Reason field is
-                    // unavailable, so retain the status and let the report show it.
+
                     System.out.println("[VALIDATION WARN] Job failure Reason was not available for "
                             + status.getJobName() + ".");
                 }
@@ -694,5 +652,3 @@ public class MultiClientAdminJobsTest {
         }
     }
 }
-
-

@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
-<suite name="EncorePay Job Monitoring Suite" verbose="2" parallel="false">
-    <test name="Multi Client Job Monitoring" preserve-order="true">
+<suite name="EncorePay Offline Unit Suite" verbose="2" parallel="false">
+    <test name="Offline Report and Reconciliation Tests" preserve-order="true">
         <classes>
             <class name="com.encorepay.models.JobStatusReportDataTest"/>
             <class name="com.encorepay.models.PostReceiptsReconciliationTest"/>
-            <class name="com.encorepay.MultiClientAdminJobsTest"/>
         </classes>
     </test>
 </suite>

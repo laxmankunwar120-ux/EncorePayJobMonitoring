@@ -15,7 +15,6 @@ import java.util.Properties;
 
 import com.encorepay.models.ClientConfig;
 
-
 public class ConfigReader {
     private static final String CONFIG_PATH = "src/main/resources/config.properties";
 
@@ -107,7 +106,6 @@ public class ConfigReader {
         return getIntProperty("explicitWait", 20);
     }
 
-    
     public ZoneId getBusinessZone() {
         String zone = getProperty("businessZone", "Asia/Kolkata");
         if (zone == null || zone.isBlank()) zone = "Asia/Kolkata";
@@ -124,7 +122,6 @@ public class ConfigReader {
         return getIntProperty("pageLoadTimeout", 45);
     }
 
-    
     public int getBootTimeout() {
         return getIntProperty("bootTimeout", 90);
     }
@@ -175,13 +172,6 @@ public class ConfigReader {
         return getClientsInternal();
     }
 
-    /**
-     * Validates all configuration required before a browser is created.
-     * This is deliberately fail-fast: malformed URLs, missing credentials,
-     * unsupported browsers, invalid timeouts, and invalid business zones
-     * must never be discovered halfway through a multi-client run.
-     * Secrets are never included in validation errors.
-     */
     public void validateForMonitoring(List<ClientConfig> clients) {
         if (clients == null || clients.isEmpty()) {
             throw new IllegalStateException("No EncorePay clients are configured.");
@@ -281,7 +271,6 @@ public class ConfigReader {
         }
     }
 
-    
     private List<ClientConfig> disambiguateClientNames(List<ClientConfig> clients) {
         Map<String, Integer> seen = new LinkedHashMap<>();
         List<ClientConfig> result = new ArrayList<>();
@@ -306,7 +295,6 @@ public class ConfigReader {
         return result;
     }
 
-    
     private List<ClientConfig> mergeClients(List<ClientConfig> fromUrls, List<ClientConfig> indexedClients) {
         Map<String, ClientConfig> merged = new LinkedHashMap<>();
 
@@ -326,7 +314,6 @@ public class ConfigReader {
         return new ArrayList<>(merged.values());
     }
 
-    
     private void warnAboutMissingIndexedCredentials(List<ClientConfig> clients) {
         for (ClientConfig client : clients) {
             if (isBlank(client.getUsername()) || isBlank(client.getPassword())) {
@@ -380,7 +367,7 @@ public class ConfigReader {
             boolean sso = Boolean.parseBoolean(firstNonBlank(
                 System.getenv("CLIENT_" + number + "_SSO"),
                 getProperty("client." + number + ".sso", "false")
-            ));  
+            ));
             clients.add(new ClientConfig(name, url, username, password, sso));
         }
         return clients;
@@ -459,7 +446,6 @@ public class ConfigReader {
         return "";
     }
 
-    
     private String hostOf(ClientConfig client) {
         try {
             String normalized = client.getUrl().matches("(?i)^https?://.*") ? client.getUrl() : "https://" + client.getUrl();
@@ -571,5 +557,3 @@ public class ConfigReader {
         return env == null || env.isBlank() ? getProperty("smtpPassword", "") : env.trim();
     }
 }
-
-
