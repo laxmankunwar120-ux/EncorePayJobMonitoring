@@ -1,9 +1,6 @@
 name: EncorePay Job Monitoring
 
 on:
-  schedule:
-    - cron: "30 1 * * *"   # 7:00 am IST
-    - cron: "30 16 * * *"  # 10:00 pm IST
   workflow_dispatch:
 concurrency:
   group: encorepay-job-monitoring

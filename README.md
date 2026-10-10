@@ -123,14 +123,9 @@ Do not commit real passwords, SMTP passwords, API keys, webhook secrets, `.env` 
 
 ## Scheduled runs (GitHub Actions)
 
-`.github/workflows/job-monitoring.yml` runs the whole suite on a schedule and needs no machine kept switched on.
+`.github/workflows/job-monitoring.yml` runs the whole suite on demand and needs no machine kept switched on. It has no GitHub-side schedule: the run is triggered by an external cron service calling `workflow_dispatch` (for example from cron-job.org using a token with workflow permissions), and it can also be started manually from the Actions tab.
 
-| Time | Cron (UTC) | Cron expression |
-|------|------------|-----------------|
-| 10:00 pm IST | 16:30 UTC | `30 16 * * *` |
-| 7:00 am IST  | 01:30 UTC | `30 1 * * *` |
-
-GitHub cron is always UTC, so edit those two lines if the schedule changes. The workflow also exposes `workflow_dispatch` for a manual run from the Actions tab.
+Because the schedule lives outside the repository, the trigger time is decided there and not in this file. Adding a `schedule:` block back is possible, but GitHub cron is always UTC and scheduled runs may be delayed under load.
 
 It runs on `ubuntu-latest` with JDK 17, stable Chrome, and `headless=true` forced on because a runner has no display. A cold runner is given `explicitWait=45` and `bootTimeout=150`, since the Angular bundle and its first API call take longer to arrive there than on a developer machine. The HTML report is uploaded as an artifact even when a client fails, since a failed run still produces a report, and a `Check HTML report` step fails visibly if no report was generated.
 
