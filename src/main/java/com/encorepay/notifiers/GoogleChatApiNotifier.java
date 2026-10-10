@@ -33,7 +33,12 @@ final class GoogleChatApiNotifier {
         ConfigReader config = new ConfigReader();
 
         if (!hasOAuthCredentials(config)) {
+            System.out.println("[WARN] Google Chat OAuth credentials are not configured"
+                + " (GOOGLE_CHAT_OAUTH_CLIENT_ID, GOOGLE_CHAT_OAUTH_CLIENT_SECRET,"
+                + " GOOGLE_CHAT_OAUTH_REFRESH_TOKEN). Incoming webhooks cannot carry file attachments,"
+                + " so the HTML report is not attached to this notification.");
             sendWebhook(webhook, message);
+            System.out.println("[INFO] Google Chat webhook notification sent (text only, no HTML report attached).");
             return;
         }
 
@@ -56,11 +61,14 @@ final class GoogleChatApiNotifier {
                     ? "[INFO] Google Chat API message sent successfully."
                     : "[INFO] Google Chat API message sent with HTML attachment.");
         } catch (Exception oauthException) {
-            System.err.println("[WARN] Google Chat OAuth notification failed: "
+            System.err.println("[ERROR] Google Chat OAuth notification failed: "
                     + abbreviate(oauthException.getMessage(), 500)
-                    + ". Falling back to the existing webhook notification.");
+                    + ". Falling back to the webhook notification (text only, no HTML report attached)."
+                    + " Check GOOGLE_CHAT_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN - refresh tokens expire after"
+                    + " 7 days while the OAuth app is in Testing mode - and confirm the Chat app is a member"
+                    + " of the target space.");
             sendWebhook(webhook, message);
-            System.out.println("[INFO] Google Chat webhook fallback notification sent successfully.");
+            System.out.println("[INFO] Google Chat webhook fallback notification sent (text only, no HTML report attached).");
         }
     }
 

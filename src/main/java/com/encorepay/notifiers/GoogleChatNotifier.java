@@ -35,7 +35,8 @@ public final class GoogleChatNotifier {
         String webhook = new ConfigReader().getGoogleChatWebhookUrl();
 
         if (webhook == null || webhook.isBlank()) {
-            System.out.println("[WARN] Google Chat notification skipped.");
+            System.err.println("[ERROR] Google Chat notification skipped: GOOGLE_CHAT_WEBHOOK_URL is not"
+                + " configured. Set it under Settings -> Secrets and variables -> Actions.");
             return;
         }
 

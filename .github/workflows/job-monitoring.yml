@@ -119,6 +119,22 @@ jobs:
             exit 1
           fi
 
+          for v in GOOGLE_CHAT_WEBHOOK_URL GOOGLE_CHAT_OAUTH_CLIENT_ID GOOGLE_CHAT_OAUTH_CLIENT_SECRET GOOGLE_CHAT_OAUTH_REFRESH_TOKEN; do
+            if [ -n "${!v}" ]; then
+              echo "::notice::$v is set"
+            else
+              echo "$v is NOT set"
+            fi
+          done
+
+          if [ -z "$GOOGLE_CHAT_WEBHOOK_URL" ]; then
+            echo "::error::GOOGLE_CHAT_WEBHOOK_URL is not set - no Google Chat notification will be sent for this run."
+          fi
+
+          if [ -z "$GOOGLE_CHAT_OAUTH_CLIENT_ID" ] || [ -z "$GOOGLE_CHAT_OAUTH_CLIENT_SECRET" ] || [ -z "$GOOGLE_CHAT_OAUTH_REFRESH_TOKEN" ]; then
+            echo "::error::Google Chat OAuth credentials are incomplete - the HTML report cannot be attached to the chat message (incoming webhooks support text only). Set GOOGLE_CHAT_OAUTH_CLIENT_ID, GOOGLE_CHAT_OAUTH_CLIENT_SECRET and GOOGLE_CHAT_OAUTH_REFRESH_TOKEN."
+          fi
+
       - name: Run job monitoring
         run: mvn -B clean test -DrunMode=multiple -Dbrowser=chrome -Dheadless=true -DexplicitWait=90 -DbootTimeout=300 -DpageLoadTimeout=120 -DbusinessZone=Asia/Kolkata
 
