@@ -56,34 +56,17 @@ final class GoogleChatApiNotifier {
             String space = extractSpace(webhook);
             Path report = resolveReport(htmlReportPath);
 
-            JsonArray reportAttachments = new JsonArray();
-            reportAttachments.add(uploadAttachment(accessToken, space, report));
+            JsonArray attachments = new JsonArray();
+            attachments.add(uploadAttachment(accessToken, space, screenshotReport(report)));
 
-            String reportText = "Hi Team, Job status report.";
-            boolean screenshotPosted = false;
+            sendApiMessage(accessToken, space, "Hi Team, Job status report.", attachments);
 
-            try {
-                Path png = screenshotReport(report);
-                JsonArray screenshotAttachments = new JsonArray();
-                screenshotAttachments.add(uploadAttachment(accessToken, space, png));
-                sendApiMessage(accessToken, space, reportText, screenshotAttachments);
-                reportText = "HTML report attached";
-                screenshotPosted = true;
-                System.out.println("[INFO] Report screenshot posted inline in Google Chat.");
-            } catch (Exception screenshotError) {
-                System.out.println("[WARN] Report screenshot failed, sending the report file only: "
-                        + abbreviate(screenshotError.getMessage(), 300));
-            }
-
-            sendApiMessage(accessToken, space, reportText, reportAttachments);
-
-            if (reportAttachments.size() > 0) {
-                System.out.println("[INFO] Google Chat report message sent with the HTML report file"
-                        + (screenshotPosted ? " and the full page screenshot." : "."));
+            if (attachments.size() > 0) {
+                System.out.println("[INFO] Google Chat API message sent with "
+                        + attachments.size() + " attachment(s).");
                 emitAnnotation("notice", "Google Chat notification sent",
-                        "Job status report sent" + (screenshotPosted
-                                ? " with the full page screenshot rendered inline and the HTML report file."
-                                : " with the HTML report file attached."));
+                        "Job status report message sent with the full page screenshot. The HTML report"
+                        + " is attached to this run's encorepay-html-report artifact.");
             }
         } catch (Exception oauthException) {
             System.err.println("[ERROR] Google Chat OAuth notification failed: "
