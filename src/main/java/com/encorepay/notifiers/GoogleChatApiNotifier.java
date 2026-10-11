@@ -1,10 +1,5 @@
 package com.encorepay.notifiers;
 
-import com.encorepay.utilities.ConfigReader;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -18,6 +13,11 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import com.encorepay.utilities.ConfigReader;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 final class GoogleChatApiNotifier {
 
@@ -179,7 +179,7 @@ final class GoogleChatApiNotifier {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(CHAT_API + "/upload/v1/" + space + "/attachments:upload"))
                 .header("Authorization", "Bearer " + accessToken)
-                .header("Content-Type", "multipart/related; boundary=" + boundary)
+               .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
 
@@ -233,20 +233,24 @@ final class GoogleChatApiNotifier {
         }
     }
 
-    private static byte[] buildMultipartBody(String boundary, Path report) throws IOException {
-        String fileName = report.getFileName().toString();
-        String metadata = "{\"filename\":\"" + escapeJson(fileName) + "\"}";
-        byte[] fileBytes = Files.readAllBytes(report);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        write(out, "--" + boundary + "\r\n");
-        write(out, "Content-Type: application/json; charset=UTF-8\r\n\r\n");
-        write(out, metadata + "\r\n");
-        write(out, "--" + boundary + "\r\n");
-        write(out, "Content-Type: text/html; charset=UTF-8\r\n\r\n");
-        out.write(fileBytes);
-        write(out, "\r\n--" + boundary + "--\r\n");
-        return out.toByteArray();
-    }
+   private static byte[] buildMultipartBody(String boundary, Path report) throws IOException {
+    String fileName = escapeHeader(report.getFileName().toString());
+    String metadata = "{\"filename\":\"" + escapeJson(fileName) + "\"}";
+    byte[] fileBytes = Files.readAllBytes(report);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+    write(out, "--" + boundary + "\r\n");
+    write(out, "Content-Disposition: form-data; name=\"metadata\"\r\n");
+    write(out, "Content-Type: application/json; charset=UTF-8\r\n\r\n");
+    write(out, metadata + "\r\n");
+
+    write(out, "--" + boundary + "\r\n");
+    write(out, "Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n");
+    write(out, "Content-Type: text/html; charset=UTF-8\r\n\r\n");
+    out.write(fileBytes);
+    write(out, "\r\n--" + boundary + "--\r\n");
+    return out.toByteArray();
+}
 
     private static void write(ByteArrayOutputStream out, String value) throws IOException {
         out.write(value.getBytes(StandardCharsets.UTF_8));
