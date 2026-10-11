@@ -177,7 +177,7 @@ final class GoogleChatApiNotifier {
         byte[] body = buildMultipartBody(boundary, report);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(CHAT_API + "/upload/v1/" + space + "/attachments:upload?uploadType=multipart"))
+                .uri(URI.create(CHAT_API + "/upload/v1/" + space + "/attachments:upload"))
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Content-Type", "multipart/related; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
