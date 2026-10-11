@@ -1,5 +1,7 @@
 package com.encorepay.models;
 
+import com.encorepay.utilities.ConfigReader;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -42,7 +44,7 @@ public final class ReportData {
         this.clientFailures = clientFailures == null ? List.of() : clientFailures;
         this.configuredClients = configuredClients == null ? List.of() : configuredClients.stream()
                 .filter(c -> c != null && !c.isBlank()).distinct().toList();
-        this.reportTime = LocalDateTime.now();
+        this.reportTime = LocalDateTime.now(new ConfigReader().getBusinessZone());
         compute();
     }
 
