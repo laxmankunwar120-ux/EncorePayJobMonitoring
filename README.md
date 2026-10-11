@@ -163,7 +163,7 @@ Add these under **Settings → Secrets and variables → Actions**. At least one
 
 ### Sending the job status report to Google Chat
 
-The run posts the report through the Google Chat API with a user OAuth token: one message with the text `Hi Team, Job status report.` (plus a link to the run's report artifact) carrying a full-page PNG screenshot of the report (taken with headless Chrome, so the team sees the report inline in Chat without downloading anything). The HTML report itself stays in the run's `encorepay-html-report` artifact — the Chat API rejects a message that mixes a non-media file attachment with a media attachment, so only the screenshot is attached. Because the API carries the screenshot, all three OAuth secrets must be set:
+The run posts the report through the Google Chat API with a user OAuth token: one message with the text `Hi Team, Job status report.` carrying a full-page PNG screenshot of the report (taken with headless Chrome, so the team sees the report inline in Chat without downloading anything). The HTML report itself stays in the run's `encorepay-html-report` artifact, which is only linked when the screenshot cannot be posted — the Chat API rejects a message that mixes a non-media file attachment with a media attachment, so only the screenshot is attached. Because the API carries the screenshot, all three OAuth secrets must be set:
 
 1. In a Google Cloud project, enable the **Google Chat API**.
 2. Configure the OAuth consent screen, then create an **OAuth client** (Desktop or Web app) and note the client ID and secret.
