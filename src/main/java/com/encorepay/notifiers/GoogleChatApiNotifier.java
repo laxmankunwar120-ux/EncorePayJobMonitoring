@@ -205,8 +205,11 @@ final class GoogleChatApiNotifier {
             double width = ((Number) size.get("width")).doubleValue();
             double height = ((Number) size.get("height")).doubleValue();
 
-            Map<String, Object> clip = Map.of("x", 0, "y", 0, "width", width,
-                    "height", height, "scale", 2);
+            width = Math.max(width, domExtent(driver, "document.body.scrollWidth", width));
+            height = Math.min(height, domExtent(driver, "document.body.scrollHeight", height));
+
+            Map<String, Object> clip = Map.of("x", 0, "y", 0, "width", (int) Math.ceil(width),
+                    "height", (int) Math.ceil(height), "scale", 2);
             Map<String, Object> shot = driver.executeCdpCommand("Page.captureScreenshot",
                     Map.of("format", "png", "captureBeyondViewport", true,
                            "fromSurface", true, "clip", clip));
@@ -215,6 +218,18 @@ final class GoogleChatApiNotifier {
         } finally {
             driver.quit();
         }
+    }
+
+    private static double domExtent(ChromeDriver driver, String script, double fallback) {
+        try {
+            Object value = driver.executeScript("return " + script);
+            if (value instanceof Number number && number.doubleValue() > 0) {
+                return number.doubleValue();
+            }
+        } catch (Exception ignored) {
+            // fall back to the layout metrics value
+        }
+        return fallback;
     }
 
     private static String refreshAccessToken(ConfigReader config) throws Exception {
