@@ -47,6 +47,8 @@ final class GoogleChatApiNotifier {
             return;
         }
 
+        sendWebhook(webhook, message);
+
         try {
             String accessToken = refreshAccessToken(config);
             String space = extractSpace(webhook);
@@ -57,10 +59,12 @@ final class GoogleChatApiNotifier {
                 if (!Files.isRegularFile(report)) {
                     throw new IllegalStateException("HTML report file was not found: " + htmlReportPath);
                 }
-                attachment = uploadAttachment(accessToken, space, report);
+                attachment = uploadAttachment(accessToken, space, toZip(report));
             }
 
-            sendApiMessage(accessToken, space, message, attachment);
+            if (attachment != null) {
+                sendApiMessage(accessToken, space, "HTML report attached", attachment);
+            }
 
             System.out.println(attachment == null
                     ? "[INFO] Google Chat API message sent successfully."
@@ -77,8 +81,7 @@ final class GoogleChatApiNotifier {
             emitAnnotation("error", "Google Chat report attachment failed",
                     abbreviate(oauthException.getMessage(), 300) + " " + describeOAuthFailure(oauthException)
                     + " The notification was posted as text only, without the HTML report.");
-            sendWebhook(webhook, message);
-            System.out.println("[INFO] Google Chat webhook fallback notification sent (text only, no HTML report attached).");
+            System.out.println("[INFO] Report attachment failed; the text notification was already sent by the webhook.");
         }
     }
 
@@ -246,7 +249,11 @@ final class GoogleChatApiNotifier {
 
     write(out, "--" + boundary + "\r\n");
     write(out, "Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n");
-    write(out, "Content-Type: text/html; charset=UTF-8\r\n\r\n");
+     String lower = fileName.toLowerCase();
+     String contentType = lower.endsWith(".zip") ? "application/zip"
+             : lower.endsWith(".pdf") ? "application/pdf"
+             : "text/html; charset=UTF-8";
+     write(out, "Content-Type: " + contentType + "\r\n\r\n");
     out.write(fileBytes);
     write(out, "\r\n--" + boundary + "--\r\n");
     return out.toByteArray();
@@ -283,5 +290,17 @@ final class GoogleChatApiNotifier {
     private static String abbreviate(String value, int maxLength) {
         String text = value == null ? "" : value.replace("\n", " ").replace("\r", " ").trim();
         return text.length() <= maxLength ? text : text.substring(0, Math.max(0, maxLength - 3)) + "...";
+    }
+
+    private static Path toZip(Path html) throws IOException {
+        String base = html.getFileName().toString().replaceAll("\\.html?$", "");
+        Path zip = html.toAbsolutePath().resolveSibling(base + ".zip");
+        try (java.util.zip.ZipOutputStream zos =
+                     new java.util.zip.ZipOutputStream(Files.newOutputStream(zip))) {
+            zos.putNextEntry(new java.util.zip.ZipEntry(html.getFileName().toString()));
+            Files.copy(html, zos);
+            zos.closeEntry();
+        }
+        return zip;
     }
 }
