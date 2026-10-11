@@ -59,7 +59,11 @@ final class GoogleChatApiNotifier {
             JsonArray attachments = new JsonArray();
             attachments.add(uploadAttachment(accessToken, space, screenshotReport(report)));
 
-            sendApiMessage(accessToken, space, "Hi Team, Job status report.", attachments);
+            String runUrl = runUrl();
+            String messageText = "Hi Team, Job status report."
+                    + (runUrl.isBlank() ? "" : " Full report: " + runUrl);
+
+            sendApiMessage(accessToken, space, messageText, attachments);
 
             if (attachments.size() > 0) {
                 System.out.println("[INFO] Google Chat API message sent with "
