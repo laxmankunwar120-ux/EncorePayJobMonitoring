@@ -205,8 +205,11 @@ final class GoogleChatApiNotifier {
             double width = ((Number) size.get("width")).doubleValue();
             double height = ((Number) size.get("height")).doubleValue();
 
-            width = Math.max(width, domExtent(driver, "document.body.scrollWidth", width));
-            height = Math.min(height, domExtent(driver, "document.body.scrollHeight", height));
+            double contentHeight = domExtent(driver, "document.body.scrollHeight", height);
+            double contentWidth = domExtent(driver, "document.body.scrollWidth", width);
+
+            width = Math.max(width, contentWidth);
+            height = contentHeight;
 
             Map<String, Object> clip = Map.of("x", 0, "y", 0, "width", (int) Math.ceil(width),
                     "height", (int) Math.ceil(height), "scale", 2);
