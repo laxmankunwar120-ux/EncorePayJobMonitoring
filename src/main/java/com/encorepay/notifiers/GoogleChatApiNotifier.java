@@ -10,9 +10,14 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
 
 import com.encorepay.utilities.ConfigReader;
 import com.google.gson.JsonArray;
@@ -30,59 +35,103 @@ final class GoogleChatApiNotifier {
     private GoogleChatApiNotifier() {
     }
 
-    static void send(String webhook, String htmlReportPath, String message) throws Exception {
+    static void send(String webhook, String htmlReportPath) throws Exception {
         ConfigReader config = new ConfigReader();
 
         if (!hasOAuthCredentials(config)) {
             System.out.println("[WARN] Google Chat OAuth credentials are not configured"
                 + " (GOOGLE_CHAT_OAUTH_CLIENT_ID, GOOGLE_CHAT_OAUTH_CLIENT_SECRET,"
                 + " GOOGLE_CHAT_OAUTH_REFRESH_TOKEN). Incoming webhooks cannot carry file attachments,"
-                + " so the HTML report is not attached to this notification.");
+                + " so the report could not be attached to this notification.");
             emitAnnotation("warning", "Google Chat OAuth credentials are not configured",
-                "Incoming webhooks carry text only, so the HTML report was not attached to this"
-                + " notification. Set GOOGLE_CHAT_OAUTH_CLIENT_ID, GOOGLE_CHAT_OAUTH_CLIENT_SECRET"
+                "Incoming webhooks cannot carry file attachments, so the report was not attached to"
+                + " this notification. Set GOOGLE_CHAT_OAUTH_CLIENT_ID, GOOGLE_CHAT_OAUTH_CLIENT_SECRET"
                 + " and GOOGLE_CHAT_OAUTH_REFRESH_TOKEN to attach the report.");
-            sendWebhook(webhook, message);
-            System.out.println("[INFO] Google Chat webhook notification sent (text only, no HTML report attached).");
+            sendFallback(webhook);
             return;
         }
-
-        sendWebhook(webhook, message);
 
         try {
             String accessToken = refreshAccessToken(config);
             String space = extractSpace(webhook);
-            JsonObject attachment = null;
+            Path report = resolveReport(htmlReportPath);
 
-            if (htmlReportPath != null && !htmlReportPath.isBlank()) {
-                Path report = Path.of(htmlReportPath);
-                if (!Files.isRegularFile(report)) {
-                    throw new IllegalStateException("HTML report file was not found: " + htmlReportPath);
-                }
-                attachment = uploadAttachment(accessToken, space, toZip(report));
+            JsonArray attachments = new JsonArray();
+            attachments.add(uploadAttachment(accessToken, space, report));
+
+            try {
+                Path png = screenshotReport(report);
+                attachments.add(uploadAttachment(accessToken, space, png));
+            } catch (Exception screenshotError) {
+                System.out.println("[WARN] Report screenshot failed, sending without it: "
+                        + abbreviate(screenshotError.getMessage(), 300));
             }
 
-            if (attachment != null) {
-                sendApiMessage(accessToken, space, "HTML report attached", attachment);
-            }
+            sendApiMessage(accessToken, space, "Hi Team, Job status report.", attachments);
 
-            System.out.println(attachment == null
-                    ? "[INFO] Google Chat API message sent successfully."
-                    : "[INFO] Google Chat API message sent with HTML attachment.");
-            emitAnnotation("notice", "Google Chat notification sent",
-                    attachment == null
-                            ? "Message sent through the Google Chat API."
-                            : "Message sent with the HTML report attached.");
+            if (attachments.size() > 0) {
+                System.out.println("[INFO] Google Chat API message sent with "
+                        + attachments.size() + " attachment(s).");
+                emitAnnotation("notice", "Google Chat notification sent",
+                        "Job status report message sent with " + attachments.size()
+                        + " attachment(s): the report file and a full page screenshot.");
+            }
         } catch (Exception oauthException) {
             System.err.println("[ERROR] Google Chat OAuth notification failed: "
                     + abbreviate(oauthException.getMessage(), 500)
-                    + ". Falling back to the webhook notification (text only, no HTML report attached). "
-                    + describeOAuthFailure(oauthException));
+                    + ". " + describeOAuthFailure(oauthException));
             emitAnnotation("error", "Google Chat report attachment failed",
                     abbreviate(oauthException.getMessage(), 300) + " " + describeOAuthFailure(oauthException)
-                    + " The notification was posted as text only, without the HTML report.");
-            System.out.println("[INFO] Report attachment failed; the text notification was already sent by the webhook.");
+                    + " A short fallback notification was sent through the webhook.");
+            sendFallback(webhook);
         }
+    }
+
+    private static void sendFallback(String webhook) {
+        String runUrl = runUrl();
+        String text = "Job status report: the report could not be attached."
+                + (runUrl.isBlank() ? "" : " Open the GitHub run: " + runUrl);
+
+        try {
+            sendWebhook(webhook, text);
+            System.out.println("[INFO] Google Chat fallback notification posted.");
+        } catch (Exception fallbackError) {
+            System.err.println("[ERROR] Google Chat fallback notification failed: "
+                    + abbreviate(fallbackError.getMessage(), 300));
+        }
+    }
+
+    private static Path resolveReport(String htmlReportPath) {
+        if (htmlReportPath == null || htmlReportPath.isBlank()) {
+            throw new IllegalStateException(
+                    "The HTML report path is not available, so the report cannot be attached.");
+        }
+
+        Path report = Path.of(htmlReportPath);
+        if (!Files.isRegularFile(report)) {
+            throw new IllegalStateException("HTML report file was not found: " + htmlReportPath);
+        }
+        return report;
+    }
+
+    private static String runUrl() {
+        String reportUrl = env("REPORT_URL");
+        if (!reportUrl.isBlank()) {
+            return reportUrl;
+        }
+
+        String server = env("GITHUB_SERVER_URL");
+        String repository = env("GITHUB_REPOSITORY");
+        String runId = env("GITHUB_RUN_ID");
+        if (!server.isBlank() && !repository.isBlank() && !runId.isBlank()) {
+            return server + "/" + repository + "/actions/runs/" + runId + "#artifacts";
+        }
+        return "";
+    }
+
+    private static String env(String name) {
+        String value = System.getenv(name);
+        return value == null ? "" : value.trim();
     }
 
     private static void emitAnnotation(String level, String title, String message) {
@@ -147,6 +196,35 @@ final class GoogleChatApiNotifier {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private static Path screenshotReport(Path html) throws Exception {
+        String base = html.getFileName().toString().replaceAll("\\.html?$", "");
+        Path png = html.toAbsolutePath().resolveSibling(base + ".png");
+
+        ChromeOptions options = new ChromeOptions();
+        options.addArguments("--headless=new", "--no-sandbox", "--disable-gpu",
+                "--disable-dev-shm-usage", "--hide-scrollbars", "--window-size=1600,1000");
+        ChromeDriver driver = new ChromeDriver(options);
+        try {
+            driver.get(html.toAbsolutePath().toUri().toString());
+            Map<String, Object> metrics = driver.executeCdpCommand("Page.getLayoutMetrics", Map.of());
+            Map<String, Object> size = (Map<String, Object>) (metrics.containsKey("cssContentSize")
+                    ? metrics.get("cssContentSize") : metrics.get("contentSize"));
+            double width = ((Number) size.get("width")).doubleValue();
+            double height = ((Number) size.get("height")).doubleValue();
+
+            Map<String, Object> clip = Map.of("x", 0, "y", 0, "width", width,
+                    "height", height, "scale", 2);
+            Map<String, Object> shot = driver.executeCdpCommand("Page.captureScreenshot",
+                    Map.of("format", "png", "captureBeyondViewport", true,
+                           "fromSurface", true, "clip", clip));
+            Files.write(png, Base64.getDecoder().decode((String) shot.get("data")));
+            return png;
+        } finally {
+            driver.quit();
+        }
+    }
+
     private static String refreshAccessToken(ConfigReader config) throws Exception {
         String form = "client_id=" + encode(config.getGoogleChatOAuthClientId())
                 + "&client_secret=" + encode(config.getGoogleChatOAuthClientSecret())
@@ -182,7 +260,7 @@ final class GoogleChatApiNotifier {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(CHAT_API + "/upload/v1/" + space + "/attachments:upload"))
                 .header("Authorization", "Bearer " + accessToken)
-               .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
 
@@ -210,13 +288,11 @@ final class GoogleChatApiNotifier {
     }
 
     private static void sendApiMessage(String accessToken, String space, String message,
-                                         JsonObject attachment) throws Exception {
+                                        JsonArray attachments) throws Exception {
         JsonObject body = new JsonObject();
         body.addProperty("text", message);
 
-        if (attachment != null) {
-            JsonArray attachments = new JsonArray();
-            attachments.add(attachment);
+        if (attachments != null && attachments.size() > 0) {
             body.add("attachment", attachments);
         }
 
@@ -236,28 +312,29 @@ final class GoogleChatApiNotifier {
         }
     }
 
-   private static byte[] buildMultipartBody(String boundary, Path report) throws IOException {
-    String fileName = escapeHeader(report.getFileName().toString());
-    String metadata = "{\"filename\":\"" + escapeJson(fileName) + "\"}";
-    byte[] fileBytes = Files.readAllBytes(report);
-    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    private static byte[] buildMultipartBody(String boundary, Path report) throws IOException {
+        String fileName = escapeHeader(report.getFileName().toString());
+        String metadata = "{\"filename\":\"" + escapeJson(fileName) + "\"}";
+        byte[] fileBytes = Files.readAllBytes(report);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-    write(out, "--" + boundary + "\r\n");
-    write(out, "Content-Disposition: form-data; name=\"metadata\"\r\n");
-    write(out, "Content-Type: application/json; charset=UTF-8\r\n\r\n");
-    write(out, metadata + "\r\n");
+        write(out, "--" + boundary + "\r\n");
+        write(out, "Content-Disposition: form-data; name=\"metadata\"\r\n");
+        write(out, "Content-Type: application/json; charset=UTF-8\r\n\r\n");
+        write(out, metadata + "\r\n");
 
-    write(out, "--" + boundary + "\r\n");
-    write(out, "Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n");
-     String lower = fileName.toLowerCase();
-     String contentType = lower.endsWith(".zip") ? "application/zip"
-             : lower.endsWith(".pdf") ? "application/pdf"
-             : "text/html; charset=UTF-8";
-     write(out, "Content-Type: " + contentType + "\r\n\r\n");
-    out.write(fileBytes);
-    write(out, "\r\n--" + boundary + "--\r\n");
-    return out.toByteArray();
-}
+        write(out, "--" + boundary + "\r\n");
+        write(out, "Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n");
+        String lower = fileName.toLowerCase();
+        String contentType = lower.endsWith(".png") ? "image/png"
+                : lower.endsWith(".zip") ? "application/zip"
+                : lower.endsWith(".pdf") ? "application/pdf"
+                : "text/html; charset=UTF-8";
+        write(out, "Content-Type: " + contentType + "\r\n\r\n");
+        out.write(fileBytes);
+        write(out, "\r\n--" + boundary + "--\r\n");
+        return out.toByteArray();
+    }
 
     private static void write(ByteArrayOutputStream out, String value) throws IOException {
         out.write(value.getBytes(StandardCharsets.UTF_8));
@@ -290,17 +367,5 @@ final class GoogleChatApiNotifier {
     private static String abbreviate(String value, int maxLength) {
         String text = value == null ? "" : value.replace("\n", " ").replace("\r", " ").trim();
         return text.length() <= maxLength ? text : text.substring(0, Math.max(0, maxLength - 3)) + "...";
-    }
-
-    private static Path toZip(Path html) throws IOException {
-        String base = html.getFileName().toString().replaceAll("\\.html?$", "");
-        Path zip = html.toAbsolutePath().resolveSibling(base + ".zip");
-        try (java.util.zip.ZipOutputStream zos =
-                     new java.util.zip.ZipOutputStream(Files.newOutputStream(zip))) {
-            zos.putNextEntry(new java.util.zip.ZipEntry(html.getFileName().toString()));
-            Files.copy(html, zos);
-            zos.closeEntry();
-        }
-        return zip;
     }
 }

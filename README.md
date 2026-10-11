@@ -152,7 +152,7 @@ Add these under **Settings → Secrets and variables → Actions**. At least one
 | `CLIENT_N_PASSWORD` | Password for client N. Optional; falls back to `ADMIN_PASSWORD`. |
 | `CLIENT_N_SSO` | `true` for the SSO client. Optional, defaults to `false`. |
 | `GOOGLE_CHAT_WEBHOOK_URL` | Google Chat incoming webhook. |
-| `GOOGLE_CHAT_OAUTH_CLIENT_ID` | OAuth client ID used to attach the HTML report to the message. Optional; without it the notification is text-only. |
+| `GOOGLE_CHAT_OAUTH_CLIENT_ID` | OAuth client ID used to send the report message through the Chat API (report file + screenshot). Optional; without it only the short webhook fallback message is posted. |
 | `GOOGLE_CHAT_OAUTH_CLIENT_SECRET` | OAuth client secret for the same client. Required together with the two other `GOOGLE_CHAT_OAUTH_*` values. |
 | `GOOGLE_CHAT_OAUTH_REFRESH_TOKEN` | OAuth refresh token with the `https://www.googleapis.com/auth/chat.messages.create` scope. |
 | `REPORT_EMAIL_ENABLED` | `true` to send email. |
@@ -161,9 +161,9 @@ Add these under **Settings → Secrets and variables → Actions**. At least one
 
 `CLIENT_N_*` runs from N=1 to N=9, matching the nine supported clients. Clients 1-9 can be configured in any mix: either list every URL in `CLIENT_URLS`, or give each monitored client its own `CLIENT_N_URL`. Credentials only need setting for the ones that differ from the shared defaults. `CLIENT_URLS` is checked first, so if it is set, the `CLIENT_N_URL` values are not read.
 
-### Attaching the HTML report to the Google Chat message
+### Sending the job status report to Google Chat
 
-Incoming webhooks can post **text only** — they cannot carry file attachments. To have the HTML report attached to the chat message, the run uses the Google Chat API with a user OAuth token, so all three OAuth secrets must be set:
+The run posts one message through the Google Chat API with a user OAuth token: the text `Hi Team, Job status report.` plus two attachments — the report file and a full-page PNG screenshot of it (taken with headless Chrome, so the team sees the report inline in Chat without downloading anything). Because the API carries the files, all three OAuth secrets must be set:
 
 1. In a Google Cloud project, enable the **Google Chat API**.
 2. Configure the OAuth consent screen, then create an **OAuth client** (Desktop or Web app) and note the client ID and secret.
@@ -171,7 +171,7 @@ Incoming webhooks can post **text only** — they cannot carry file attachments.
 4. Make sure the **user who authorized the token is a member of the target space** — the API acts on that user's behalf — and that `GOOGLE_CHAT_WEBHOOK_URL` names that same space, otherwise the attachment upload or message creation fails with a permission or not-found error.
 5. Store `GOOGLE_CHAT_OAUTH_CLIENT_ID`, `GOOGLE_CHAT_OAUTH_CLIENT_SECRET` and `GOOGLE_CHAT_OAUTH_REFRESH_TOKEN` as repository secrets.
 
-While the OAuth app is in **Testing** mode, Google expires refresh tokens after 7 days — republish the app or re-authorize when notifications mysteriously stop attaching the report. If any of the three is missing, the run logs a warning and posts a text-only notification that still links to the run's report artifact.
+While the OAuth app is in **Testing** mode, Google expires refresh tokens after 7 days — republish the app or re-authorize when notifications mysteriously stop attaching the report. The webhook is only used as a fallback: if any of the three OAuth secrets is missing, or if the OAuth/upload/API path fails, the run posts one short text message `Job status report: the report could not be attached. Open the GitHub run: <run url>` through the webhook (the webhook cannot carry files). If the screenshot step fails — for example no Chrome on the runner — the report file is still sent and the run logs a `[WARN] Report screenshot failed` line.
 
 **If the report still does not arrive,** the run emits a `Google Chat report attachment failed` annotation next to the failing step with the underlying error:
 

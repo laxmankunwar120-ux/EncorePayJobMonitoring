@@ -314,6 +314,12 @@ public final class ReportData {
         final List<String> details = new ArrayList<>();
 
         ClientHealth(String client) { this.client = client; }
+
+        public String getClient() { return client; }
+
+        public ClientState getState() { return state; }
+
+        public List<String> getDetails() { return details; }
     }
 
     public static final class ClientException {

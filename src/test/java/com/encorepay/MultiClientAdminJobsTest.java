@@ -132,7 +132,7 @@ public class MultiClientAdminJobsTest {
             List<String> notificationClientNames = clients.stream()
                     .map(this::safeClientName)
                     .toList();
-            notifySafely(clientFailures, "Google Chat", () -> GoogleChatNotifier.notify(allStatuses, clientFailures, notificationClientNames, reportPath));
+            notifySafely(clientFailures, "Google Chat", () -> GoogleChatNotifier.notify(reportPath));
             notifySafely(clientFailures, "Email", () -> EmailNotifier.notify(allStatuses, clientFailures, notificationClientNames, reportPath));
         } else {
             clientFailures.add("NOTIFICATION :: Skipped because no HTML report could be generated.");
