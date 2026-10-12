@@ -152,12 +152,17 @@ public final class ReportData {
 
             String validation = safe(job.getValidationMessage());
             if (!validation.isBlank()) {
-                if (health.state != ClientState.FAILED
-                        && !isUnscopedReceiptCountMismatch(validation)) {
-                    health.state = ClientState.ATTENTION;
+                if (isOverCountSelfCheck(validation)) {
+                    String detail = "Monitor self-check: " + truncate(validation, 140);
+                    addOnce(health.details, detail);
+                } else {
+                    if (health.state != ClientState.FAILED
+                            && !isUnscopedReceiptCountMismatch(validation)) {
+                        health.state = ClientState.ATTENTION;
+                    }
+                    String detail = "Validation: " + truncate(validation, 140);
+                    addOnce(health.details, detail);
                 }
-                String detail = "Validation: " + truncate(validation, 140);
-                addOnce(health.details, detail);
             }
         }
 
@@ -205,12 +210,9 @@ public final class ReportData {
                     failedReceiptReasonsByClient.computeIfAbsent(client, k -> new LinkedHashMap<>());
 
             Map<String, Integer> grouped = groupReceiptReasons(job);
-            if (grouped.containsKey("REASON_NOT_CAPTURED")) {
-
-                int gap = grouped.remove("REASON_NOT_CAPTURED");
-                if (gap > 0) target.merge("REASON_NOT_CAPTURED", gap, Integer::sum);
-            }
-            int captured = target.getOrDefault("REASON_NOT_CAPTURED", 0);
+            int carriedNotCaptured = grouped.getOrDefault("REASON_NOT_CAPTURED", 0);
+            grouped.remove("REASON_NOT_CAPTURED");
+            int captured = 0;
 
             for (Map.Entry<String, Integer> entry : grouped.entrySet()) {
                 if (entry.getValue() == null || entry.getValue() <= 0) continue;
@@ -218,9 +220,22 @@ public final class ReportData {
                 captured += entry.getValue();
             }
 
-            int missing = failed - captured;
+            int missing = failed - captured - carriedNotCaptured;
             if (missing > 0) {
                 target.merge("REASON_NOT_CAPTURED", missing, Integer::sum);
+            } else if (carriedNotCaptured > 0) {
+                target.merge("REASON_NOT_CAPTURED", carriedNotCaptured, Integer::sum);
+            }
+            int totalAccounted = captured + target.getOrDefault("REASON_NOT_CAPTURED", 0);
+            if (totalAccounted > failed) {
+                int overCount = totalAccounted - failed;
+                int current = target.getOrDefault("REASON_NOT_CAPTURED", 0);
+                int adjust = Math.min(overCount, current);
+                if (adjust > 0) {
+                    int rest = current - adjust;
+                    if (rest <= 0) target.remove("REASON_NOT_CAPTURED");
+                    else target.put("REASON_NOT_CAPTURED", rest);
+                }
             }
         }
     }
@@ -344,6 +359,15 @@ public final class ReportData {
         if (COLLECTIONS.equalsIgnoreCase(safe(jobName))) return "Download Collection Items";
         if (UPCOMING.equalsIgnoreCase(safe(jobName))) return "Upcoming Demand";
         return safe(jobName);
+    }
+
+    private static boolean isOverCountSelfCheck(String validation) {
+        String clean = safe(validation);
+        if (clean.isBlank()) return false;
+        String lower = clean.toLowerCase(Locale.ROOT);
+        if (!(lower.contains("over-count") || lower.contains("overcount")
+                || lower.contains("monitor self-check"))) return false;
+        return lower.contains("captured") && lower.contains("of");
     }
 
     private static boolean isUnscopedReceiptCountMismatch(String validation) {

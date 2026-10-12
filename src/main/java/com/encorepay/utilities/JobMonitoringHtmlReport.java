@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -91,7 +92,10 @@ public final class JobMonitoringHtmlReport {
         css.append(".attn{border:1px solid #ecd28a;background:#fff9e9;border-radius:6px;padding:4px 10px;margin:0 0 4px}");
         css.append(".attn h2{border-left:3px solid #ecd28a;color:#8a5a00;margin:0 0 3px}");
         css.append(".attn table{font-size:12px;table-layout:auto}");
-        css.append("@media print{body{background:#fff}.report{box-shadow:none}.brandbar{-webkit-print-color-adjust:exact;print-color-adjust:exact}section,.attn{break-inside:avoid}}");
+        css.append(".monwarn{border:1px solid #cbd5e1;background:#f7fafc;border-radius:6px;padding:4px 10px;margin:0 0 4px}");
+        css.append(".monwarn h2{border-left:3px solid #94a3b8;color:#475569;margin:0 0 3px}");
+        css.append(".monwarn table{font-size:12px;table-layout:auto}");
+        css.append("@media print{body{background:#fff}.report{box-shadow:none}.brandbar{-webkit-print-color-adjust:exact;print-color-adjust:exact}section,.attn,.monwarn{break-inside:avoid}}");
         return "<!doctype html><html lang='en'><head><meta charset='UTF-8'>"
                 + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 + "<title>EncorePay Job Monitoring</title>"
@@ -186,18 +190,51 @@ public final class JobMonitoringHtmlReport {
     private static String attentionSection(ReportData data) {
         List<ReportData.ClientException> exceptions = data.getClientExceptions().stream()
                 .filter(e -> e.state != ReportData.ClientState.HEALTHY).toList();
-        if (exceptions.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder(2048);
-        sb.append("<div class='attn'><h2>Clients Requiring Attention</h2>");
-        sb.append("<table><thead><tr><th>Client</th><th>State</th><th>Details</th></tr></thead><tbody>");
+        List<ReportData.ClientException> clientIssues = new ArrayList<>();
+        List<ReportData.ClientException> monitorIssues = new ArrayList<>();
         for (ReportData.ClientException ex : exceptions) {
-            String detail = ex.details.isEmpty() ? "" : String.join("; ", ex.details);
-            sb.append("<tr><td>").append(esc(ex.client)).append("</td>");
-            sb.append("<td>").append(esc(ex.state.name())).append("</td>");
-            sb.append("<td class='reason'>").append(esc(detail)).append("</td></tr>");
+            if (isMonitorOnlyIssue(ex)) monitorIssues.add(ex);
+            else clientIssues.add(ex);
         }
-        sb.append("</tbody></table></div>");
+        StringBuilder sb = new StringBuilder(2048);
+        if (!clientIssues.isEmpty()) {
+            sb.append("<div class='attn'><h2>Clients Requiring Attention</h2>");
+            sb.append("<table><thead><tr><th>Client</th><th>State</th><th>Details</th></tr></thead><tbody>");
+            for (ReportData.ClientException ex : clientIssues) {
+                String detail = ex.details.isEmpty() ? "" : String.join("; ", ex.details);
+                sb.append("<tr><td>").append(esc(ex.client)).append("</td>");
+                sb.append("<td>").append(esc(ex.state.name())).append("</td>");
+                sb.append("<td class='reason'>").append(esc(detail)).append("</td></tr>");
+            }
+            sb.append("</tbody></table></div>");
+        }
+        if (!monitorIssues.isEmpty()) {
+            sb.append("<div class='monwarn'><h2>Monitor Issues (checker only, not client impact)</h2>");
+            sb.append("<table><thead><tr><th>Client</th><th>State</th><th>Details</th></tr></thead><tbody>");
+            for (ReportData.ClientException ex : monitorIssues) {
+                String detail = ex.details.isEmpty() ? "" : String.join("; ", ex.details);
+                sb.append("<tr><td>").append(esc(ex.client)).append("</td>");
+                sb.append("<td>").append(esc(ex.state.name())).append("</td>");
+                sb.append("<td class='reason'>").append(esc(detail)).append("</td></tr>");
+            }
+            sb.append("</tbody></table></div>");
+        }
         return sb.toString();
+    }
+
+    private static boolean isMonitorOnlyIssue(ReportData.ClientException ex) {
+        if (ex == null || ex.details == null) return false;
+        for (String detail : ex.details) {
+            String lower = detail == null ? "" : detail.toLowerCase(Locale.ROOT);
+            if (lower.contains("login timeout") || lower.contains("login timed out")
+                    || lower.contains("browser/session failure") || lower.contains("browser_failure")
+                    || lower.contains("application not ready") || lower.contains("application_not_ready")
+                    || lower.contains("server is down") || lower.contains("server_down")
+                    || lower.contains("monitoring validation warning") || lower.contains("status not available")
+                    || lower.contains("reconciliation") || lower.contains("over-count")
+                    || lower.contains("monitor self-check")) return true;
+        }
+        return false;
     }
 
     private static Map<String, Integer> reasonsFor(Map<String, Map<String, Integer>> reasonsByClient, String client) {

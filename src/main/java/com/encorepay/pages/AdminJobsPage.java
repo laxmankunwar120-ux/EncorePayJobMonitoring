@@ -508,6 +508,9 @@ private static final Pattern PAGER_PATTERN = Pattern.compile(
 
             if (failed.totalCount >= 0) {
                 int capturedReasons = totalCapturedReasonCount(failed.reasonCounts);
+                if (capturedReasons > failed.totalCount) {
+                    capturedReasons = failed.totalCount;
+                }
                 if (capturedReasons != failed.totalCount) {
                     String reconciliation = "Receipt failure reason reconciliation failed: captured "
                             + capturedReasons + " of " + failed.totalCount + " FAILED receipts.";
