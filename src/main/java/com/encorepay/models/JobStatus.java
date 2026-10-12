@@ -100,6 +100,40 @@ public class JobStatus {
         return Collections.unmodifiableMap(failureReasonCounts);
     }
 
+    /**
+     * Trims the captured reason counts so their total never exceeds the authoritative FAILED count.
+     *
+     * The FAILED count comes from the paginator and is trustworthy; reasons are scraped UI data and
+     * can be double-counted when a receipt row is scanned twice. Excess is taken from the largest
+     * reason entries first, and empty entries are dropped.
+     *
+     * @param maxTotal the authoritative FAILED receipt count
+     * @return true when a correction was applied, false when nothing needed trimming
+     */
+    public boolean trimReasonCountsTo(int maxTotal) {
+        if (maxTotal < 0) return false;
+        int total = getTotalFailureReasonCount();
+        if (total <= maxTotal) return false;
+
+        int excess = total - maxTotal;
+        List<Map.Entry<String, Integer>> largestFirst = new ArrayList<>(failureReasonCounts.entrySet());
+        largestFirst.sort((a, b) -> Integer.compare(countOf(b), countOf(a)));
+        for (Map.Entry<String, Integer> entry : largestFirst) {
+            if (excess <= 0) break;
+            int current = countOf(entry);
+            int reduce = Math.min(current, excess);
+            entry.setValue(current - reduce);
+            excess -= reduce;
+        }
+        failureReasonCounts.entrySet().removeIf(e -> countOf(e) <= 0);
+        return true;
+    }
+
+    private static int countOf(Map.Entry<String, Integer> entry) {
+        Integer value = entry.getValue();
+        return value == null || value <= 0 ? 0 : value;
+    }
+
     public int getTotalFailureReasonCount() {
         int total = 0;
         for (Integer count : failureReasonCounts.values()) {

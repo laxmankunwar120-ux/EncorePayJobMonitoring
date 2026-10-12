@@ -229,6 +229,43 @@ public class PostReceiptsReconciliationTest {
         assertFalse(html.toLowerCase().contains("password"));
     }
 
+    @Test
+    public void overCountedReasonsAreTrimmedToAuthoritativeFailedCount() {
+        JobStatus post = post("SARVAGRAM", "PARTIALLY_SUCCESSFUL", 13, 0);
+        post.addFailureReason("Network timeout", 8);
+        post.addFailureReason("500 Internal Server Error", 6); // 14 reasons for 13 receipts
+        assertFalse(post.isFailureReasonCountReconciled());
+
+        assertTrue(post.trimReasonCountsTo(post.getFailedCount()));
+
+        assertEquals(post.getTotalFailureReasonCount(), 13);
+        assertTrue(post.isFailureReasonCountReconciled());
+        assertEquals(post.getFailureReasonCounts().get("Network timeout").intValue(), 7);
+        assertEquals(post.getFailureReasonCounts().get("500 Internal Server Error").intValue(), 6);
+    }
+
+    @Test
+    public void trimIsANoOpWhenReasonsAlreadyReconcile() {
+        JobStatus post = post("CONATUS", "PARTIALLY_SUCCESSFUL", 3, 0);
+        post.addFailureReason("Connection refused", 2);
+        post.addFailureReason("Value Date cannot be after transaction date", 1);
+
+        assertFalse(post.trimReasonCountsTo(post.getFailedCount()));
+
+        assertEquals(post.getTotalFailureReasonCount(), 3);
+        assertEquals(post.getFailureReasonCounts().size(), 2);
+    }
+
+    @Test
+    public void trimRefusesToGuessWhenFailedCountIsUnknown() {
+        JobStatus post = post("ALTUM", "PARTIALLY_SUCCESSFUL", JobStatus.UNKNOWN_COUNT, 0);
+        post.addFailureReason("Login timeout", 5);
+
+        assertFalse(post.trimReasonCountsTo(post.getFailedCount()));
+
+        assertEquals(post.getTotalFailureReasonCount(), 5);
+    }
+
     private static String readFile(String path) {
         try {
             return java.nio.file.Files.readString(java.nio.file.Path.of(path));

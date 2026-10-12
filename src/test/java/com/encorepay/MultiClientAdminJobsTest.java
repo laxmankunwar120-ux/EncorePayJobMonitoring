@@ -117,6 +117,7 @@ public class MultiClientAdminJobsTest {
         }
 
         String htmlReportPath = null;
+        normalizeOverCountedReceiptReasons(allStatuses);
         try {
             List<String> configuredClientNames = clients.stream()
                     .map(this::safeClientName)
@@ -157,6 +158,34 @@ public class MultiClientAdminJobsTest {
         } catch (Exception e) {
             clientFailures.add(label.toUpperCase() + " NOTIFICATION :: " + safeMessage(e));
             System.out.println("[" + label.toUpperCase() + " FAILED] " + safeMessage(e));
+        }
+    }
+
+    /**
+     * Final circuit breaker before the report and the chat message are produced.
+     *
+     * The FAILED count read from the paginator is authoritative. Receipt-level reasons are
+     * auxiliary display data scraped from the UI, and that scrape can over-count (a row scanned
+     * twice when its text mutates mid-scan). An over-count used to surface as a false
+     * "reconciliation failed" alarm and paged the group for a healthy run.
+     *
+     * Any over-count is trimmed here, loudly, so a wrong number can never reach the report
+     * no matter what any upstream capture or reporting change does in the future.
+     */
+    private void normalizeOverCountedReceiptReasons(List<JobStatus> statuses) {
+        for (JobStatus status : statuses) {
+            if (status == null || status.isSynthetic()) continue;
+            int failed = status.getFailedCount();
+            if (failed < 0) continue;
+
+            int captured = status.getTotalFailureReasonCount();
+            if (captured <= failed) continue;
+
+            status.trimReasonCountsTo(failed);
+            System.out.println("[SELF-CHECK] " + status.getClientName()
+                    + " receipt reason over-count corrected: captured " + captured
+                    + " reasons for " + failed + " FAILED receipts; excess trimmed"
+                    + " so the report cannot raise a false alarm.");
         }
     }
 

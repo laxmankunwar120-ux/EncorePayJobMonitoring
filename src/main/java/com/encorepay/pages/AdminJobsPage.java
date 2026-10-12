@@ -1716,7 +1716,7 @@ private void searchReceipts(String expectedStatus, ReceiptCapture capture) {
             if (text.isBlank()) {
                 return "empty-row-" + position;
             }
-            return position + "|" + text.hashCode();
+            return position;
         } catch (Exception e) {
             return "error-row-" + position;
         }
