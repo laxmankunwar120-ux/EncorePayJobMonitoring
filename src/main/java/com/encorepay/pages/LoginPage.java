@@ -119,7 +119,14 @@ public class LoginPage extends BasePage {
     public void waitForLoginOrAuthenticatedPage() {
 
         final long startedAt = System.currentTimeMillis();
-        final boolean[] reloaded = {false};
+        // A stalled SPA (shell loaded, app never hydrates) is the dominant CI failure for
+        // hosts behind slow or filtered network paths. Healthy apps render in a few seconds
+        // and never reach these thresholds, so the reloads only ever cost time on a client
+        // that is already going to time out. Spread a bounded number of reloads across the
+        // wait budget so a transient bundle/API stall gets several chances to recover instead
+        // of just one, which matters for hosts that fail consistently (e.g. Altum).
+        final long[] reloadAtMs = {20_000L, 45_000L, 70_000L};
+        final int[] reloadsDone = {0};
         loginStage = "waiting-for-sign-in-ui";
         loginOutcomeWait.until(d -> {
             String accessFailure = detectInfrastructureFailure();
@@ -129,19 +136,17 @@ public class LoginPage extends BasePage {
             if (isSsoButtonVisible() || isNormalLoginVisible() || isAuthenticatedAreaVisible()) {
                 return true;
             }
-            // The HTML shell can arrive in well under a second while the SPA itself never
-            // finishes hydrating (stalled bundle or API request on a slow/filtered network
-            // path). After 30s with no visible UI, do exactly one reload before spending the
-            // rest of the wait budget; healthy apps never reach this branch.
-            if (!reloaded[0] && System.currentTimeMillis() - startedAt > 30_000) {
-                reloaded[0] = true;
-                System.out.println("[LOGIN] Sign-in UI still not rendered after 30s"
-                        + " (shell loaded, app not hydrated); attempting one mid-wait reload. "
-                        + describePageState());
+            long elapsed = System.currentTimeMillis() - startedAt;
+            if (reloadsDone[0] < reloadAtMs.length && elapsed >= reloadAtMs[reloadsDone[0]]) {
+                int attemptNo = reloadsDone[0] + 1;
+                reloadsDone[0]++;
+                System.out.println("[LOGIN] Sign-in UI still not rendered after " + (elapsed / 1000)
+                        + "s (shell loaded, app not hydrated); mid-wait reload "
+                        + attemptNo + "/" + reloadAtMs.length + ". " + describePageState());
                 try {
                     d.navigate().refresh();
                 } catch (RuntimeException reloadError) {
-                    System.out.println("[LOGIN] Mid-wait reload failed: " + reloadError.getMessage());
+                    System.out.println("[LOGIN] Mid-wait reload " + attemptNo + " failed: " + reloadError.getMessage());
                 }
             }
             return false;
