@@ -414,6 +414,11 @@ public final class ReportData {
         int stepIdx = error.indexOf(" [step=");
         if (stepIdx > 0) error = error.substring(0, stepIdx);
         String lower = error.toLowerCase(Locale.ROOT);
+        if (lower.contains("access_blocked") || lower.contains("access rejected")
+                || lower.contains("403 forbidden") || lower.contains("403")
+                || lower.contains("access denied") || lower.contains("forbidden")) {
+            return "Application access rejected (403 Forbidden)";
+        }
         if (lower.contains("server is down") || lower.contains("server_down")
                 || lower.contains("404 not found") || lower.contains("502 bad gateway")
                 || lower.contains("503 service unavailable") || lower.contains("504 gateway timeout")) {

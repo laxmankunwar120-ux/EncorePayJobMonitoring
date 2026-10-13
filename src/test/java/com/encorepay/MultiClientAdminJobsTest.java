@@ -585,7 +585,14 @@ public class MultiClientAdminJobsTest {
                 || lower.contains("hover")
                 || lower.contains("signin")
                 || lower.contains("sign-in")
-                || lower.contains("login");
+                || lower.contains("login")
+                || lower.contains("403")
+                || lower.contains("forbidden")
+                || lower.contains("access rejected")
+                || lower.contains("access_blocked")
+                || lower.contains("blocked")
+                || lower.contains("server is down")
+                || lower.contains("monitoring data could not be captured");
     }
 
     private JobStatus findRequired(List<JobStatus> statuses, String name) {
@@ -646,6 +653,7 @@ public class MultiClientAdminJobsTest {
     }
 
     private String classifyLoginClientFailure(Throwable error, WebDriver driver) {
+        if (containsErrorMarker(error, "ACCESS_BLOCKED:")) return "Application access rejected (403 Forbidden)";
         if (containsErrorMarker(error, "SERVER_DOWN:")) return "Server is down";
         if (containsErrorMarker(error, "LOGIN_TIMEOUT:")) return "Login timeout";
         if (containsErrorMarker(error, "BROWSER_FAILURE:")) return "Browser/session failure";

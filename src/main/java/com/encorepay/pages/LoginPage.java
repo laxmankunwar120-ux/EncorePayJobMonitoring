@@ -14,6 +14,15 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import com.encorepay.utilities.ConfigReader;
 
+/** Thrown when the application host rejects the runner outright (HTTP 403 / WAF / geo / IP
+ *  allow-list). Deterministic and not recoverable by reloading, so login fails fast. */
+class LoginBlockedException extends RuntimeException {
+    LoginBlockedException(String message) {
+        super("ACCESS_BLOCKED: " + message);
+    }
+}
+
+
 public class LoginPage extends BasePage {
 
     private static final By LOGIN_ERROR_LOCATOR = By.xpath(
@@ -124,14 +133,17 @@ public class LoginPage extends BasePage {
         // and never reach these thresholds, so the reloads only ever cost time on a client
         // that is already going to time out. Spread a bounded number of reloads across the
         // wait budget so a transient bundle/API stall gets several chances to recover instead
-        // of just one, which matters for hosts that fail consistently (e.g. Altum).
+        // of just one. A hard 403 (host blocking the runner IP) is detected above and thrown
+        // before any reload, so it is never retried pointlessly.
         final long[] reloadAtMs = {20_000L, 45_000L, 70_000L};
         final int[] reloadsDone = {0};
         loginStage = "waiting-for-sign-in-ui";
         loginOutcomeWait.until(d -> {
             String accessFailure = detectInfrastructureFailure();
             if (!accessFailure.isBlank()) {
-                throw new IllegalStateException("SERVER_DOWN: " + accessFailure);
+                // Carry the real reason in the message but throw a dedicated exception type so a
+                // hard block (403/WAF) fails fast instead of being swallowed by the retry loop.
+                throw new LoginBlockedException(accessFailure);
             }
             if (isSsoButtonVisible() || isNormalLoginVisible() || isAuthenticatedAreaVisible()) {
                 return true;
@@ -162,6 +174,15 @@ public class LoginPage extends BasePage {
             String s = source == null ? "" : source.toLowerCase(Locale.ROOT);
             String u = url == null ? "" : url.toLowerCase(Locale.ROOT);
 
+            // 403 = the host is rejecting THIS runner (WAF / geo / IP allow-list). This is not a
+            // transient stall and not a login problem, so it must never be reloaded or retried.
+            if (t.contains("403 forbidden") || s.contains("403 forbidden")
+                    || t.contains("access denied") || s.contains("access denied")
+                    || s.contains("just a moment") || s.contains("attention required")
+                    || s.contains("cf-chl") || s.contains("cloudflare")) {
+                return "ACCESS_BLOCKED: Application host returned 403 Forbidden to the runner "
+                        + "(IP/geo/WAF block - works locally but is blocked from CI).";
+            }
             if (t.contains("404 not found") || s.contains("404 not found")
                     || s.contains("nginx/") && s.contains("404")) {
                 return "Server is down (HTTP 404 - application endpoint is unavailable)";
@@ -223,6 +244,11 @@ public class LoginPage extends BasePage {
                 throw new IllegalStateException("Login did not reach the authenticated application state.");
             } catch (RuntimeException e) {
                 lastFailure = e;
+                if (containsMarker(e, "ACCESS_BLOCKED:")) {
+                    // Hard host block (403/WAF): deterministic, reloading cannot help, so fail fast.
+                    captureLoginFailureEvidence();
+                    throw e;
+                }
                 if (isLoginRejected() || isMfaChallengeVisible() || containsMarker(e, "LOGIN_REJECTED:")) {
                     throw e;
                 }
@@ -287,6 +313,10 @@ public class LoginPage extends BasePage {
                 return;
             } catch (RuntimeException e) {
                 lastError = e;
+                if (containsMarker(e, "ACCESS_BLOCKED:")) {
+                    captureLoginFailureEvidence();
+                    throw e;
+                }
                 if (isLoginRejected() || isMfaChallengeVisible()) throw e;
                 System.out.println("[WARN] SSO login attempt " + attempt + "/2 did not complete: " + getFailureContext());
                 if (attempt < 2) {
@@ -305,6 +335,7 @@ public class LoginPage extends BasePage {
     private RuntimeException buildLoginFailure(String flow, Throwable error) {
         String code = classifyLoginFailure(error);
         String message = switch (code) {
+            case "ACCESS_BLOCKED" -> "Application access rejected (403 Forbidden) - the host is blocking this runner's IP/region (works locally, blocked from CI). Not a login or credential issue.";
             case "SERVER_DOWN" -> "Server is down - " + flow + " login could not reach the application after 2 attempts.";
             case "LOGIN_TIMEOUT" -> "Login timed out - " + flow + " authentication transition did not complete after 2 attempts.";
             case "BROWSER_FAILURE" -> "Browser/session failure - " + flow + " login could not be completed after 2 attempts.";
@@ -314,6 +345,7 @@ public class LoginPage extends BasePage {
     }
 
     private String classifyLoginFailure(Throwable error) {
+        if (containsMarker(error, "ACCESS_BLOCKED:")) return "ACCESS_BLOCKED";
         if (containsMarker(error, "SERVER_DOWN:")) return "SERVER_DOWN";
         if (containsMarker(error, "LOGIN_REJECTED:")) return "LOGIN_REJECTED";
         if (containsMarker(error, "MFA_REQUIRED:")) return "MFA_REQUIRED";
