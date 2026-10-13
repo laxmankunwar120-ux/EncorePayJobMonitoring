@@ -51,6 +51,9 @@ public class LoginPage extends BasePage {
     private final WebDriverWait signInWait;
     private final WebDriverWait loginOutcomeWait;
 
+    /** Where in the login flow we currently are; surfaced in every failure message. */
+    private String loginStage = "init";
+
     @FindBy(xpath =
         "//input[@placeholder='Enter User Name']"
             + " | //input[@placeholder='User Name']"
@@ -115,12 +118,33 @@ public class LoginPage extends BasePage {
 
     public void waitForLoginOrAuthenticatedPage() {
 
+        final long startedAt = System.currentTimeMillis();
+        final boolean[] reloaded = {false};
+        loginStage = "waiting-for-sign-in-ui";
         loginOutcomeWait.until(d -> {
             String accessFailure = detectInfrastructureFailure();
             if (!accessFailure.isBlank()) {
                 throw new IllegalStateException("SERVER_DOWN: " + accessFailure);
             }
-            return isSsoButtonVisible() || isNormalLoginVisible() || isAuthenticatedAreaVisible();
+            if (isSsoButtonVisible() || isNormalLoginVisible() || isAuthenticatedAreaVisible()) {
+                return true;
+            }
+            // The HTML shell can arrive in well under a second while the SPA itself never
+            // finishes hydrating (stalled bundle or API request on a slow/filtered network
+            // path). After 30s with no visible UI, do exactly one reload before spending the
+            // rest of the wait budget; healthy apps never reach this branch.
+            if (!reloaded[0] && System.currentTimeMillis() - startedAt > 30_000) {
+                reloaded[0] = true;
+                System.out.println("[LOGIN] Sign-in UI still not rendered after 30s"
+                        + " (shell loaded, app not hydrated); attempting one mid-wait reload. "
+                        + describePageState());
+                try {
+                    d.navigate().refresh();
+                } catch (RuntimeException reloadError) {
+                    System.out.println("[LOGIN] Mid-wait reload failed: " + reloadError.getMessage());
+                }
+            }
+            return false;
         });
     }
 
@@ -177,6 +201,7 @@ public class LoginPage extends BasePage {
                 }
 
                 attemptLogin(user, pass);
+                loginStage = "awaiting-login-outcome";
                 loginOutcomeWait.until(d -> isLoginSuccessful() || isLoginRejected() || isMfaChallengeVisible());
 
                 if (isMfaChallengeVisible()) {
@@ -208,6 +233,7 @@ public class LoginPage extends BasePage {
             }
         }
 
+        captureLoginFailureEvidence();
         throw buildLoginFailure("LOGIN", lastFailure);
     }
 
@@ -225,6 +251,7 @@ public class LoginPage extends BasePage {
 
                 WebElement ssoButton = wait.until(ExpectedConditions.elementToBeClickable(SSO_BUTTON));
                 ssoButton.click();
+                loginStage = "sso-redirect";
                 action.captureStep("SSO Sign-In Clicked (attempt " + attempt + ")");
                 wait.until(ExpectedConditions.urlContains(SSO_HOST));
 
@@ -234,8 +261,10 @@ public class LoginPage extends BasePage {
                 WebElement ssoPasswordField = wait.until(ExpectedConditions.visibilityOfElementLocated(SSO_PASSWORD));
                 ssoPasswordField.clear();
                 ssoPasswordField.sendKeys(password);
+                loginStage = "sso-credentials-typed";
                 action.captureStep("SSO Credentials Entered (attempt " + attempt + ")");
                 wait.until(ExpectedConditions.elementToBeClickable(SSO_LOGIN_BUTTON)).click();
+                loginStage = "awaiting-login-outcome";
 
                 wait.until(d -> !d.getCurrentUrl().toLowerCase(Locale.ROOT).contains(SSO_HOST));
                 wait.until(d -> {
@@ -260,6 +289,7 @@ public class LoginPage extends BasePage {
                 }
             }
         }
+        captureLoginFailureEvidence();
         throw buildLoginFailure("SSO", lastError);
     }
 
@@ -399,6 +429,7 @@ public class LoginPage extends BasePage {
     }
 
     private void attemptLogin(String user, String pass) {
+        loginStage = "typing-credentials";
         waitForLoginPage();
 
         String username = user == null ? "" : user.trim();
@@ -418,7 +449,9 @@ public class LoginPage extends BasePage {
         });
 
         action.captureStep("Credentials Entered");
+        loginStage = "submitting-credentials";
         action.click(LOGIN_SUBMIT);
+        loginStage = "credentials-submitted";
     }
 
     private boolean isMfaChallengeVisible() {
@@ -510,11 +543,70 @@ public class LoginPage extends BasePage {
     }
 
     private String getFailureContext() {
+        StringBuilder context = new StringBuilder();
+        context.append("stage=").append(loginStage);
         String error = getLoginErrorMessage();
         if (!error.isBlank()) {
-            return "Visible message: " + error;
+            context.append(" | visible message: ").append(error);
         }
-        return "Current URL: " + driver.getCurrentUrl();
+        context.append(" | ").append(describePageState());
+        return context.toString();
+    }
+
+    /**
+     * Best-effort evidence capture right before a login failure is thrown: screenshot plus a
+     * one-line page snapshot, so a CI log alone shows whether the sign-in form was missing,
+     * the app never hydrated, or a block/error page was served.
+     */
+    private void captureLoginFailureEvidence() {
+        System.out.println("[LOGIN FAILURE EVIDENCE] stage=" + loginStage + " | " + describePageState());
+        try {
+            action.captureStep("Login failure (" + loginStage + ")");
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    /** Compact one-line snapshot of what the browser actually shows, for CI logs. */
+    private String describePageState() {
+        try {
+            String url = driver.getCurrentUrl();
+            String title = driver.getTitle();
+            String readyState = "unknown";
+            try {
+                readyState = String.valueOf(
+                        ((org.openqa.selenium.JavascriptExecutor) driver).executeScript("return document.readyState"));
+            } catch (Exception ignored) {
+            }
+            String bodySnippet = "";
+            try {
+                String body = driver.findElement(By.tagName("body")).getText();
+                bodySnippet = body == null ? "" : body.replaceAll("\\s+", " ").trim();
+                if (bodySnippet.length() > 160) {
+                    bodySnippet = bodySnippet.substring(0, 160) + "...";
+                }
+            } catch (Exception ignored) {
+            }
+            boolean formVisible;
+            try {
+                formVisible = isNormalLoginVisible();
+            } catch (Exception e) {
+                formVisible = false;
+            }
+            boolean ssoVisible;
+            try {
+                ssoVisible = isSsoButtonVisible();
+            } catch (Exception e) {
+                ssoVisible = false;
+            }
+            return "url=" + url
+                    + " | title=" + title
+                    + " | readyState=" + readyState
+                    + " | usernameFieldVisible=" + formVisible
+                    + " | ssoButtonVisible=" + ssoVisible
+                    + " | bodySnippet=\"" + bodySnippet + "\"";
+        } catch (Exception e) {
+            return "page state unavailable: " + e.getMessage();
+        }
     }
 
     private boolean isElementDisplayed(By locator) {
